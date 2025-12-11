@@ -1,4 +1,3 @@
-
 import { AppStats, LogEntry } from '../types';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
@@ -103,7 +102,87 @@ export const Telemetry = {
       window.location.reload();
   },
 
-  getStats: async (): Promise<AppStats> => {
+  /**
+   * Subscribe to Realtime updates for Dashboard
+   */
+  subscribe: (onStatsChange: (stats: AppStats) => void, onLogChange: (log: LogEntry) => void) => {
+    if (!isSupabaseEnabled || !supabase) return () => {};
+
+    console.log("Subscribing to Realtime channels...");
+
+    const channel = supabase.channel('realtime_admin_dashboard')
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'plagiafix_stats' }, (payload) => {
+            const data = payload.new;
+            console.log("Realtime Stats Update:", data);
+            onStatsChange({
+                totalScans: data.total_scans,
+                totalFixes: data.total_fixes,
+                totalErrors: data.total_errors,
+                totalVisits: data.total_visits,
+                tokensUsedEstimate: data.tokens_used,
+                lastActive: data.updated_at,
+                firstActive: data.created_at
+            });
+        })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'plagiafix_logs' }, (payload) => {
+            const d = payload.new;
+            console.log("Realtime Log Update:", d);
+            onLogChange({
+                timestamp: new Date(d.created_at).getTime(),
+                type: d.type,
+                details: d.details
+            });
+        })
+        .subscribe((status) => {
+            console.log("Supabase Subscription Status:", status);
+        });
+
+    return () => {
+        if (supabase) supabase.removeChannel(channel);
+    };
+  },
+
+  /**
+   * Get aggregated stats for specific date ranges efficiently using count queries
+   */
+  getRangeStats: async (startDate: Date, endDate: Date): Promise<Partial<AppStats>> => {
+      if (!isSupabaseEnabled || !supabase) {
+          return Telemetry.getStatsLocal();
+      }
+
+      const startIso = startDate.toISOString();
+      const endIso = endDate.toISOString();
+
+      try {
+          const [scans, fixes, visits, errors] = await Promise.all([
+              supabase.from('plagiafix_logs').select('*', { count: 'exact', head: true }).eq('type', 'SCAN').gte('created_at', startIso).lte('created_at', endIso),
+              supabase.from('plagiafix_logs').select('*', { count: 'exact', head: true }).eq('type', 'FIX').gte('created_at', startIso).lte('created_at', endIso),
+              supabase.from('plagiafix_logs').select('*', { count: 'exact', head: true }).eq('type', 'VISIT').gte('created_at', startIso).lte('created_at', endIso),
+              supabase.from('plagiafix_logs').select('*', { count: 'exact', head: true }).eq('type', 'ERROR').gte('created_at', startIso).lte('created_at', endIso)
+          ]);
+          
+          const scanCount = scans.count || 0;
+          const fixCount = fixes.count || 0;
+
+          // Estimate tokens: Avg 2500 tokens per scan (10k chars), avg 2000 per fix
+          // This avoids fetching body text for thousands of rows
+          const estimatedTokens = (scanCount * 2500) + (fixCount * 2000);
+
+          return {
+              totalScans: scanCount,
+              totalFixes: fixCount,
+              totalVisits: visits.count || 0,
+              totalErrors: errors.count || 0,
+              tokensUsedEstimate: estimatedTokens,
+              lastActive: endDate.toISOString()
+          };
+      } catch (e) {
+          console.error("Range query failed", e);
+          return { totalScans: 0, totalFixes: 0, totalVisits: 0, totalErrors: 0, tokensUsedEstimate: 0 };
+      }
+  },
+
+  getStats: async (strictGlobalMode = false): Promise<AppStats> => {
     if (isSupabaseEnabled && supabase) {
         try {
             const { data, error } = await supabase
@@ -119,7 +198,8 @@ export const Telemetry = {
                     totalErrors: data.total_errors || 0,
                     totalVisits: data.total_visits || 0, 
                     tokensUsedEstimate: data.tokens_used || 0,
-                    lastActive: data.updated_at
+                    lastActive: data.updated_at,
+                    firstActive: data.created_at
                 };
             } else if (error && error.code === 'PGRST116') {
                 // Table exists but row is missing, try to create it
@@ -130,15 +210,28 @@ export const Telemetry = {
                     totalErrors: 0,
                     totalVisits: 0,
                     tokensUsedEstimate: 0,
-                    lastActive: new Date().toISOString()
+                    lastActive: new Date().toISOString(),
+                    firstActive: new Date().toISOString()
                 };
             }
+            
+            // If we have a real error (like network) and we are in strict mode (Admin Dashboard)
+            // throw error instead of falling back to local storage
+            if (error && strictGlobalMode) {
+                throw error;
+            }
+
         } catch (e) {
             console.error("Supabase fetch failed", e);
+            if (strictGlobalMode) throw e; // Rethrow to prevent 0-value fallback in Admin
         }
     }
 
-    // Fallback to LocalStorage
+    if (strictGlobalMode) {
+        throw new Error("Supabase not connected");
+    }
+
+    // Fallback to LocalStorage (User Mode)
     const stored = localStorage.getItem(STATS_KEY);
     return stored ? JSON.parse(stored) : {
       totalScans: 0,
@@ -150,14 +243,23 @@ export const Telemetry = {
     };
   },
 
-  getLogs: async (): Promise<LogEntry[]> => {
+  getLogs: async (limit = 50, startDate?: Date, endDate?: Date): Promise<LogEntry[]> => {
     if (isSupabaseEnabled && supabase) {
         try {
-            const { data, error } = await supabase
+            let query = supabase
                 .from('plagiafix_logs')
                 .select('*')
                 .order('created_at', { ascending: false })
-                .limit(50);
+                .limit(limit);
+            
+            if (startDate) {
+                query = query.gte('created_at', startDate.toISOString());
+            }
+            if (endDate) {
+                query = query.lte('created_at', endDate.toISOString());
+            }
+            
+            const { data, error } = await query;
             
             if (!error && data) {
                 return data.map((d: any) => ({
@@ -178,22 +280,29 @@ export const Telemetry = {
   updateSupabaseStats: async (updates: any) => {
       if (!isSupabaseEnabled || !supabase) return;
 
-      const { data: current } = await supabase.from('plagiafix_stats').select('*').eq('id', 1).single();
-      
-      const newStats = {
-          total_scans: (current?.total_scans || 0) + (updates.total_scans || 0),
-          total_fixes: (current?.total_fixes || 0) + (updates.total_fixes || 0),
-          total_errors: (current?.total_errors || 0) + (updates.total_errors || 0),
-          tokens_used: (current?.tokens_used || 0) + (updates.tokens_used || 0),
-          updated_at: new Date().toISOString()
-      };
-      
-      if (updates.total_visits) {
-         // @ts-ignore
-         newStats.total_visits = (current?.total_visits || 0) + updates.total_visits;
-      }
-
       try {
+        // CRITICAL FIX: Fetch FIRST to ensure we don't overwrite with 0 or bad data
+        const { data: current, error } = await supabase.from('plagiafix_stats').select('*').eq('id', 1).single();
+        
+        if (error && error.code !== 'PGRST116') {
+            // If fetch failed (network error), ABORT update to prevent data loss (resetting to 0)
+            console.warn("Could not fetch current stats. Aborting update to prevent data corruption.");
+            return; 
+        }
+
+        const newStats = {
+            total_scans: (current?.total_scans || 0) + (updates.total_scans || 0),
+            total_fixes: (current?.total_fixes || 0) + (updates.total_fixes || 0),
+            total_errors: (current?.total_errors || 0) + (updates.total_errors || 0),
+            tokens_used: (current?.tokens_used || 0) + (updates.tokens_used || 0),
+            updated_at: new Date().toISOString()
+        };
+        
+        if (updates.total_visits) {
+             // @ts-ignore
+             newStats.total_visits = (current?.total_visits || 0) + updates.total_visits;
+        }
+
         if (current) {
             await supabase.from('plagiafix_stats').update(newStats).eq('id', 1);
         } else {
@@ -201,19 +310,13 @@ export const Telemetry = {
             await supabase.from('plagiafix_stats').insert({ id: 1, ...newStats });
         }
       } catch (e) {
-          console.warn("Stats update failed, retrying safe update");
-          delete newStats.updated_at; 
-          // @ts-ignore
-          delete newStats.total_visits;
-          await supabase.from('plagiafix_stats').update(newStats).eq('id', 1).catch(() => {});
+          console.warn("Stats update failed safely:", e);
       }
   },
 
   logVisit: async () => {
       let locationDetails = '';
       try {
-          // Attempt to get user country for Analytics
-          // Use a public IP API. Note: This might block on some networks, so we wrap in try/catch.
           const res = await fetch('https://ipapi.co/json/');
           if (res.ok) {
               const data = await res.json();
@@ -221,9 +324,7 @@ export const Telemetry = {
                   locationDetails = ` [${data.country_code}]`;
               }
           }
-      } catch (e) {
-          // Ignore location fetch errors silently
-      }
+      } catch (e) { /* ignore */ }
 
       const logMsg = `New user session started${locationDetails}`;
 
@@ -236,7 +337,6 @@ export const Telemetry = {
       stats.totalVisits = (stats.totalVisits || 0) + 1;
       stats.lastActive = new Date().toISOString();
       localStorage.setItem(STATS_KEY, JSON.stringify(stats));
-      if (!isSupabaseEnabled) Telemetry.addLogLocal('VISIT', logMsg);
   },
 
   logScan: async (charCount: number) => {
@@ -250,9 +350,7 @@ export const Telemetry = {
     const stats = await Telemetry.getStatsLocal();
     stats.totalScans += 1;
     stats.tokensUsedEstimate += tokens;
-    stats.lastActive = new Date().toISOString();
     localStorage.setItem(STATS_KEY, JSON.stringify(stats));
-    if (!isSupabaseEnabled) Telemetry.addLogLocal('SCAN', `Scanned document: ${charCount} chars`);
   },
 
   logFix: async (charCount: number) => {
@@ -266,9 +364,7 @@ export const Telemetry = {
     const stats = await Telemetry.getStatsLocal();
     stats.totalFixes += 1;
     stats.tokensUsedEstimate += tokens;
-    stats.lastActive = new Date().toISOString();
     localStorage.setItem(STATS_KEY, JSON.stringify(stats));
-    if (!isSupabaseEnabled) Telemetry.addLogLocal('FIX', `Fixed document: ${charCount} chars`);
   },
 
   logError: async (message: string) => {
@@ -276,12 +372,21 @@ export const Telemetry = {
         supabase.from('plagiafix_logs').insert({ type: 'ERROR', details: message }).then();
         Telemetry.updateSupabaseStats({ total_errors: 1 }).then();
     } 
-
     const stats = await Telemetry.getStatsLocal();
     stats.totalErrors += 1;
-    stats.lastActive = new Date().toISOString();
     localStorage.setItem(STATS_KEY, JSON.stringify(stats));
-    if (!isSupabaseEnabled) Telemetry.addLogLocal('ERROR', message);
+  },
+
+  logFeedback: async (rating: number, comment: string) => {
+      const details = JSON.stringify({ rating, comment });
+      
+      if (isSupabaseEnabled && supabase) {
+          supabase.from('plagiafix_logs').insert({ type: 'FEEDBACK', details }).then();
+      }
+      
+      const logs = JSON.parse(localStorage.getItem(LOGS_KEY) || '[]');
+      const newLogs = [{ timestamp: Date.now(), type: 'FEEDBACK', details }, ...logs].slice(0, 50);
+      localStorage.setItem(LOGS_KEY, JSON.stringify(newLogs));
   },
 
   getStatsLocal: async (): Promise<AppStats> => {
@@ -296,7 +401,7 @@ export const Telemetry = {
       };
   },
 
-  addLogLocal: (type: 'SCAN' | 'FIX' | 'ERROR' | 'VISIT', details: string) => {
+  addLogLocal: (type: string, details: string) => {
     const stored = localStorage.getItem(LOGS_KEY);
     const logs = stored ? JSON.parse(stored) : [];
     const newLogs = [{ timestamp: Date.now(), type, details }, ...logs].slice(0, 50);

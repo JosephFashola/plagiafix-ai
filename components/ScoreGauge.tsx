@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, Tooltip } from 'recharts';
+import { HelpCircle, X } from 'lucide-react';
 
 interface ScoreGaugeProps {
   score: number; // 0 to 100 (plagiarism score)
@@ -8,6 +9,8 @@ interface ScoreGaugeProps {
 }
 
 const ScoreGauge: React.FC<ScoreGaugeProps> = ({ score, label, history = [] }) => {
+  const [showInfo, setShowInfo] = useState(false);
+
   // Score is plagiarism. 
   // High Plagiarism = Bad (Red). Low Plagiarism = Good (Green).
   
@@ -27,7 +30,37 @@ const ScoreGauge: React.FC<ScoreGaugeProps> = ({ score, label, history = [] }) =
   const trendData = history ? history.map((val, idx) => ({ index: idx + 1, value: val })) : [];
 
   return (
-    <div className="flex flex-col items-center justify-between p-4 bg-white rounded-xl shadow-sm border border-slate-200 h-full min-w-[200px]">
+    <div className="relative flex flex-col items-center justify-between p-4 bg-white rounded-xl shadow-sm border border-slate-200 h-full min-w-[200px]">
+      
+      {/* Info Icon */}
+      <button 
+        onClick={() => setShowInfo(!showInfo)}
+        className="absolute top-3 right-3 text-slate-300 hover:text-indigo-500 transition-colors z-20"
+      >
+        <HelpCircle className="w-4 h-4" />
+      </button>
+
+      {/* Info Popover */}
+      {showInfo && (
+        <div className="absolute inset-0 z-30 bg-white/95 backdrop-blur-sm p-4 rounded-xl flex flex-col items-center justify-center text-center animate-in fade-in zoom-in duration-200">
+           <button 
+             onClick={() => setShowInfo(false)}
+             className="absolute top-2 right-2 text-slate-400 hover:text-slate-600"
+           >
+             <X className="w-4 h-4" />
+           </button>
+           <h4 className="text-sm font-bold text-slate-800 mb-2">What is this score?</h4>
+           <p className="text-xs text-slate-600 leading-relaxed">
+             This is a <strong>Composite Risk Score</strong>. It measures the likelihood of your text being flagged as either <strong>AI-Generated</strong> or <strong>Plagiarized</strong> by institutional scanners like Turnitin or GPTZero.
+           </p>
+           <div className="mt-3 w-full h-1 bg-gradient-to-r from-green-400 via-yellow-400 to-red-500 rounded-full"></div>
+           <div className="flex justify-between w-full text-[10px] text-slate-400 mt-1 font-bold uppercase">
+             <span>Safe</span>
+             <span>Risky</span>
+           </div>
+        </div>
+      )}
+
       <div className="flex flex-col items-center justify-center flex-grow w-full">
         {/* Strictly fixed dimensions for the Gauge to prevent 0-width errors */}
         <div style={{ width: 128, height: 128, position: 'relative' }}>

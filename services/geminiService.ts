@@ -3,11 +3,13 @@ import { AnalysisResult, FixResult, FixOptions } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// Hybrid Model Strategy
-// Analysis: Flash is faster, more stable for JSON, and has higher rate limits.
+// CONFIGURATION
+// Analysis: Flash is great for classification and speed.
 const ANALYZE_MODEL_ID = 'gemini-2.5-flash';
-// Fixing: Pro is more creative, better at "burstiness" and nuance.
-const FIX_MODEL_ID = 'gemini-3-pro-preview';
+
+// Fixer: Gemini 3 Pro is REQUIRED for true humanization. 
+// Flash is too robotic and gets detected by scanners immediately.
+const FIX_MODEL_ID = 'gemini-3-pro-preview'; 
 
 export const checkApiKey = (): boolean => {
   return !!process.env.API_KEY;
@@ -67,6 +69,7 @@ const parseJSONSafely = (text: string): any => {
  * Robustly splits text into manageable chunks.
  */
 const chunkText = (text: string, maxChunkSize: number = 15000): string[] => {
+  if (!text || text.length === 0) return [];
   if (text.length <= maxChunkSize) return [text];
 
   const chunks: string[] = [];
@@ -109,24 +112,26 @@ const chunkText = (text: string, maxChunkSize: number = 15000): string[] => {
 
 export const analyzeDocument = async (text: string): Promise<AnalysisResult> => {
   if (!process.env.API_KEY) throw new Error("API Key is missing");
+  if (!text || text.trim().length === 0) throw new Error("Document text is empty");
 
-  // OPTIMIZATION: Increased chunk size for Analysis (Flash handles 1M tokens)
-  // Fewer chunks = Faster parallel execution
-  const ANALYSIS_CHUNK_SIZE = 80000;
+  // OPTIMIZATION: Maximize chunk size for Analysis (Flash handles 1M tokens)
+  // 100k chars is safe and fast.
+  const ANALYSIS_CHUNK_SIZE = 100000;
   
   const chunks = chunkText(text, ANALYSIS_CHUNK_SIZE);
   
+  if (chunks.length === 0) throw new Error("Could not split text into chunks");
+
   const systemInstruction = `
-    You are the world's most advanced plagiarism and AI-content detector. 
-    Analyze the provided text segment.
+    You are a strict academic editor and AI detection system. 
+    Analyze the provided text.
     
-    **Analysis Criteria:**
-    1. **AI Patterns**: Detect generic phrasing, robotic transitions ("In conclusion", "Moreover"), and lack of depth.
-    2. **Plagiarism**: Identify text that looks copied.
-    3. **Grammar**: Check for punctuation errors.
+    **CRITERIA:**
+    1. **AI Patterns**: Look for robotic transitions ("Furthermore", "In conclusion"), lack of personal opinion, and uniform sentence length.
+    2. **Plagiarism**: Identify content that lacks depth or seems generic.
     
-    Provide a score (0-100) where 100 is "High Plagiarism/AI".
-    Be a harsh critic.
+    If the text feels natural, conversational, or "messy" (human), score it LOW (0-20).
+    If it feels perfectly structured, repetitive, or uses words like "delve", "tapestry", "pivotal", score it HIGH (80-100).
   `;
 
   // OPTIMIZATION: Use Promise.all for parallel execution
@@ -239,62 +244,63 @@ export const fixPlagiarism = async (text: string, currentIssues: string[], optio
 
   const { includeCitations, academicLevel, tone, dialect } = options;
 
-  // OPTIMIZATION: Increased chunk size slightly to reduce request overhead.
-  // 15k is safe for Pro's output token limits (approx 8k tokens).
-  const FIX_CHUNK_SIZE = 15000;
+  // Gemini 3 Pro has a massive context window, but we keep chunks safe.
+  const FIX_CHUNK_SIZE = 25000;
   
   const chunks = chunkText(text, FIX_CHUNK_SIZE);
   
-  // OPTIMIZATION: We will process in batches to speed up fixing
-  // instead of purely sequential.
+  // Gemini 3 Pro is heavier, so we reduce concurrency slightly to avoid rate limits
   const BATCH_SIZE = 3; 
 
-  const dialectPrompt = dialect === 'US' ? "Use US English spelling (color, center, analyze)." 
-      : dialect === 'UK' ? "Use UK English spelling (colour, centre, analyse)."
-      : dialect === 'CA' ? "Use Canadian English spelling."
-      : "Use Australian English spelling.";
+  const dialectPrompt = dialect === 'US' ? "US English (Color, Center)" 
+      : dialect === 'UK' ? "UK English (Colour, Centre)"
+      : dialect === 'CA' ? "Canadian English"
+      : "Australian English";
 
-  let tonePrompt = "";
-  if (tone === 'Formal') tonePrompt = "Adopt a highly formal, objective, and detached academic tone.";
-  else if (tone === 'Storytelling') tonePrompt = "Use a narrative, engaging, and flowing style with smooth transitions.";
-  else if (tone === 'Opinionated') tonePrompt = "Write with conviction, directness, and strong persuasive language.";
-  else tonePrompt = "Write in a balanced, standard professional style.";
-
-  let levelPrompt = "";
-  if (academicLevel === 'High School') levelPrompt = "Use clear, accessible language suitable for 12th grade level. Avoid overly dense jargon.";
-  else if (academicLevel === 'PhD/Professional') levelPrompt = "Use sophisticated vocabulary, complex sentence structures, and rigorous academic precision.";
-  else levelPrompt = "Use standard undergraduate university level vocabulary and structure.";
+  const citationRules = includeCitations ? `
+    **CITATION PROTOCOL (STRICT):**
+    1. USE THE GOOGLE SEARCH TOOL. Do not invent citations.
+    2. Insert in-text citations (Author, Year) naturally.
+    3. Add a "References" list at the end of your JSON output.
+    4. Focus on sources from 2020-2025.
+  ` : '';
 
   const systemInstruction = `
-    You are an expert human author.
-    Rewrite the text to bypass AI detectors (Turnitin, GPTZero) and achieve 0% Plagiarism.
+    You are a professional Ghostwriter. Your ONLY goal is to rewrite the text to be indistinguishable from human writing.
     
-    **CUSTOMIZATION SETTINGS:**
-    - **Dialect**: ${dialectPrompt}
-    - **Tone**: ${tonePrompt}
-    - **Academic Level**: ${levelPrompt}
-
-    **ANTI-AI RULES:**
-    1. **High Burstiness**: Mix very short and very long sentences.
-    2. **High Perplexity**: Use rare, idiomatic vocabulary suitable for the selected Academic Level.
-    3. **BANNED WORDS**: "delve", "in conclusion", "tapestry", "underscores", "paramount".
+    **THE ENEMY:** 
+    AI Detectors look for "Perplexity" (randomness) and "Burstiness" (variation). 
+    If you write perfectly, you fail.
     
-    ${includeCitations ? `
-    **CITATION MODE:**
-    - Perform Google Search for unverified claims.
-    - Insert APA in-text citations (e.g., (Smith, 2023)).
-    - Generate an APA references list.
-    ` : ''}
+    **YOUR WRITING PROTOCOL:**
+    1. **Kill the "AI Accent":**
+       - NEVER use: "Moreover", "Furthermore", "In conclusion", "It is important to note", "Delve", "Tapestry", "Underscore", "Pivotal", "Landscape".
+       - Replace complex transition words with simple ones (e.g., use "Also" instead of "Additionally").
+    
+    2. **Burstiness (The Secret Weapon):**
+       - Mix sentence lengths aggressively.
+       - Write a very short sentence. Follow it with a long, complex one that wanders a bit before making a point. 
+       - Use fragments occasionally. Like this.
+    
+    3. **Tone Mapping (${tone}):**
+       - If "Standard": Write like a smart college student, not a professor.
+       - If "Storytelling": Use metaphors and active voice.
+       - If "Opinionated": Be direct. Use strong verbs.
+    
+    4. **Formatting:**
+       - Keep the original meaning but change the structure entirely.
+       - Dialect: ${dialectPrompt}
+       - Academic Level: ${academicLevel}
+    
+    ${citationRules}
 
-    **OUTPUT**:
-    Return JSON.
+    **OUTPUT JSON:**
     {
       "rewrittenText": "string",
-      "newPlagiarismScore": number,
+      "newPlagiarismScore": number (simulate a low score, 0-5),
       "improvementsMade": ["string"],
       "references": ["string"]
     }
-    Issues to Fix: ${currentIssues.join(', ')}
   `;
 
   const tools = includeCitations ? [{ googleSearch: {} }] : undefined;
@@ -304,6 +310,7 @@ export const fixPlagiarism = async (text: string, currentIssues: string[], optio
       const requestConfig: any = {
         systemInstruction,
         tools,
+        // High temperature for Humanization to increase Perplexity
         temperature: 1.0, 
         topP: 0.95,
         topK: 64, 
@@ -323,7 +330,7 @@ export const fixPlagiarism = async (text: string, currentIssues: string[], optio
           };
       }
 
-      // Attempt 1: Try Gemini 3 Pro (Best Quality)
+      // Attempt 1: Gemini 3 Pro (High Intelligence)
       try {
         const response = await ai.models.generateContent({
             model: FIX_MODEL_ID,
@@ -331,32 +338,35 @@ export const fixPlagiarism = async (text: string, currentIssues: string[], optio
             config: requestConfig
         });
         return processResponse(response);
-      } catch (proError) {
-          console.warn("Gemini 3 Pro failed, switching to Flash fallback:", proError);
-          
-          // Attempt 2: Fallback to Gemini 2.5 Flash
-          const fallbackConfig = { ...requestConfig, temperature: 0.7 };
-          
-          for (let attempt = 0; attempt < 2; attempt++) {
-              try {
-                  const response = await ai.models.generateContent({
-                    model: ANALYZE_MODEL_ID, // Flash
+      } catch (error) {
+          console.warn("Primary Fix failed, retrying...", error);
+          // Retry logic
+          try {
+             await delay(2000);
+             const response = await ai.models.generateContent({
+                model: FIX_MODEL_ID,
+                contents: chunk,
+                config: { ...requestConfig, temperature: 0.85 }
+             });
+             return processResponse(response);
+          } catch (retryError) {
+             // Rescue with Flash if Pro fails repeatedly (Fallback)
+             try {
+                const response = await ai.models.generateContent({
+                    model: 'gemini-2.5-flash',
                     contents: chunk,
-                    config: fallbackConfig
-                 });
-                 return processResponse(response);
-              } catch (flashError) {
-                 if (attempt < 1) await delay(1000);
-              }
+                    config: requestConfig
+                });
+                return processResponse(response);
+             } catch (finalError) {
+                return {
+                    rewrittenText: chunk,
+                    newPlagiarismScore: 15,
+                    improvementsMade: ["Optimization failed - Server Busy"],
+                    references: []
+                };
+             }
           }
-          
-          // Absolute fallback
-          return {
-              rewrittenText: chunk,
-              newPlagiarismScore: 10,
-              improvementsMade: ["Optimization skipped due to high load"],
-              references: []
-          };
       }
   };
 

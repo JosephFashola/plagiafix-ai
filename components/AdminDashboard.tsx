@@ -1,10 +1,26 @@
-
 import React, { useEffect, useState } from 'react';
 import { AppStats, LogEntry } from '../types';
 import { Telemetry } from '../services/telemetry';
-import { Activity, Users, Database, DollarSign, Clock, Wifi, WifiOff, Eye, Plug, X, RefreshCw, Globe2 } from 'lucide-react';
+import { Activity, Users, Database, DollarSign, Clock, Wifi, WifiOff, Eye, Plug, X, RefreshCw, Globe2, Star, MessageSquare, Calendar, Filter } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import toast from 'react-hot-toast';
+
+const StatCard: React.FC<{ icon: React.ReactNode, label: string, value: string, subValue: string }> = ({ icon, label, value, subValue }) => (
+    <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg hover:border-indigo-500/50 transition-colors">
+        <div className="flex items-center gap-4">
+            <div className="p-3 bg-slate-700 rounded-lg shadow-inner">
+                {icon}
+            </div>
+            <div>
+                <p className="text-slate-400 text-sm font-medium">{label}</p>
+                <h4 className="text-2xl font-bold text-white tracking-tight">{value}</h4>
+                <p className="text-slate-500 text-xs mt-1">{subValue}</p>
+            </div>
+        </div>
+    </div>
+);
+
+type TimeRange = 'ALL' | 'TODAY' | 'WEEK' | 'MONTH' | 'YEAR' | 'CUSTOM';
 
 const AdminDashboard: React.FC = () => {
   const [stats, setStats] = useState<AppStats | null>(null);
@@ -12,28 +28,42 @@ const AdminDashboard: React.FC = () => {
   const [isCloudConnected, setIsCloudConnected] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [countryData, setCountryData] = useState<{name: string, value: number}[]>([]);
+  const [avgRating, setAvgRating] = useState(0);
   
+  // Date Filtering State
+  const [timeRange, setTimeRange] = useState<TimeRange>('ALL');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+
   // Manual Connect State
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [manualUrl, setManualUrl] = useState('');
   const [manualKey, setManualKey] = useState('');
 
-  const refreshData = async () => {
-      setIsRefreshing(true);
-      const newStats = await Telemetry.getStats();
-      const newLogs = await Telemetry.getLogs();
-      setStats(newStats);
-      setLogs(newLogs);
-      
-      // Parse Countries from logs
+  // Process Logs to extract Metrics
+  const processLogs = (currentLogs: LogEntry[]) => {
       const countries: Record<string, number> = {};
-      newLogs.forEach(log => {
+      let totalRating = 0;
+      let ratingCount = 0;
+
+      currentLogs.forEach(log => {
+          // Parse Country
           if (log.type === 'VISIT' && log.details.includes('[')) {
               const match = log.details.match(/\[([A-Z]{2})\]/);
               if (match) {
                   const code = match[1];
                   countries[code] = (countries[code] || 0) + 1;
               }
+          }
+          // Parse Rating
+          if (log.type === 'FEEDBACK') {
+              try {
+                  const f = JSON.parse(log.details);
+                  if (f.rating) {
+                      totalRating += f.rating;
+                      ratingCount++;
+                  }
+              } catch (e) { /* ignore */ }
           }
       });
       
@@ -43,17 +73,104 @@ const AdminDashboard: React.FC = () => {
         .slice(0, 5); // Top 5
         
       setCountryData(cData);
+      setAvgRating(ratingCount > 0 ? (totalRating / ratingCount) : 0);
+  };
 
+  const getRangeDates = () => {
+      const now = new Date();
+      let start = new Date();
+      
+      switch (timeRange) {
+          case 'TODAY':
+              start.setHours(0, 0, 0, 0);
+              break;
+          case 'WEEK':
+              start.setDate(now.getDate() - 7);
+              break;
+          case 'MONTH':
+              start.setMonth(now.getMonth() - 1);
+              break;
+          case 'YEAR':
+              start.setFullYear(now.getFullYear() - 1);
+              break;
+          case 'CUSTOM':
+              if (customStart) start = new Date(customStart);
+              if (customEnd) now.setTime(new Date(customEnd).getTime() + 86399900); // End of day
+              break;
+          default:
+              return null;
+      }
+      return { start, end: now };
+  };
+
+  const refreshData = async () => {
+      setIsRefreshing(true);
+      try {
+          if (timeRange === 'ALL') {
+              // 1. ALL TIME MODE (Uses Aggregated Stats Table - Fast)
+              const newStats = await Telemetry.getStats(true);
+              const newLogs = await Telemetry.getLogs(); // Get most recent logs
+              setStats(newStats);
+              setLogs(newLogs);
+              processLogs(newLogs);
+          } else {
+              // 2. RANGE MODE (Queries Counts from Logs Table)
+              const dates = getRangeDates();
+              if (dates) {
+                  const rangeStats = await Telemetry.getRangeStats(dates.start, dates.end);
+                  
+                  // Merge with deployment date from global stats just for display
+                  const globalStats = await Telemetry.getStats(true).catch(() => ({ firstActive: undefined }));
+                  
+                  // @ts-ignore
+                  setStats({
+                      ...rangeStats,
+                      firstActive: globalStats.firstActive
+                  });
+                  
+                  // Also fetch logs strictly for this range for the list view
+                  const rangeLogs = await Telemetry.getLogs(100, dates.start, dates.end);
+                  setLogs(rangeLogs);
+                  processLogs(rangeLogs);
+              }
+          }
+      } catch (error) {
+          console.warn("Failed to refresh admin data:", error);
+          if (!stats) {
+              toast.error("Could not fetch data. Check connection.");
+          }
+      }
+      
       setIsCloudConnected(Telemetry.isConnected());
       setIsRefreshing(false);
   };
 
+  // Re-fetch when time range changes
   useEffect(() => {
-    refreshData();
-    // Fast polling for real-time feel (2 seconds)
-    const interval = setInterval(() => refreshData(), 2000);
-    return () => clearInterval(interval);
-  }, []);
+      refreshData();
+  }, [timeRange, customStart, customEnd]);
+
+  useEffect(() => {
+    // Setup Realtime Subscription ONLY if in ALL mode (to keep live updates flowing)
+    if (timeRange !== 'ALL') return;
+
+    const unsubscribe = Telemetry.subscribe(
+        (newStats) => {
+            setStats(prev => newStats);
+        },
+        (newLog) => {
+            setLogs(prev => {
+                const updated = [newLog, ...prev].slice(0, 50);
+                processLogs(updated);
+                return updated;
+            });
+        }
+    );
+
+    return () => {
+        unsubscribe();
+    };
+  }, [timeRange]);
 
   const handleConnect = () => {
       if (!manualUrl || !manualKey) {
@@ -65,15 +182,9 @@ const AdminDashboard: React.FC = () => {
       toast.success("Credentials saved. Reloading...");
   };
 
-  const handleDisconnect = () => {
-      if (confirm("Are you sure you want to disconnect from Supabase?")) {
-          Telemetry.clearCredentials();
-      }
-  };
-
   if (!stats) return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-400 gap-2">
-          <RefreshCw className="animate-spin h-5 w-5" /> Loading Admin Data...
+          <RefreshCw className="animate-spin h-5 w-5" /> Connecting to Global Telemetry...
       </div>
   );
 
@@ -87,6 +198,10 @@ const AdminDashboard: React.FC = () => {
 
   const estimatedCost = (stats.tokensUsedEstimate / 1000000) * 5;
 
+  const dateLabel = timeRange === 'ALL' 
+    ? (stats.firstActive ? new Date(stats.firstActive).toLocaleDateString() : 'Unknown')
+    : getRangeDates()?.start.toLocaleDateString() + ' - ' + getRangeDates()?.end.toLocaleDateString();
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 font-sans p-8 relative">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -98,22 +213,69 @@ const AdminDashboard: React.FC = () => {
               <div className="bg-indigo-600 p-2 rounded-lg">
                 <Activity className="h-6 w-6" />
               </div>
-              Admin Command Center
+              Global Lifecycle Metrics
             </h1>
-            <p className="text-slate-400 mt-1">Real-time usage metrics and system health</p>
+            <p className="text-slate-400 mt-1 flex items-center gap-2">
+                <Calendar className="w-3.5 h-3.5" />
+                {timeRange === 'ALL' ? 'Tracking since deployment: ' : 'Period: '} 
+                <span className="text-indigo-400 font-semibold">{dateLabel}</span>
+            </p>
           </div>
-          <div className="flex items-center gap-4">
-             <div className="text-right flex flex-col items-end">
-                <p className="text-xs text-slate-500 uppercase font-bold mb-1">Database Status</p>
+          <div className="flex flex-col items-end gap-3">
+             <div className="flex items-center bg-slate-800 p-1 rounded-lg border border-slate-700">
+                {(['ALL', 'TODAY', 'WEEK', 'MONTH', 'CUSTOM'] as const).map((r) => (
+                    <button
+                        key={r}
+                        onClick={() => setTimeRange(r)}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                            timeRange === r 
+                            ? 'bg-indigo-600 text-white shadow-lg' 
+                            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+                        }`}
+                    >
+                        {r === 'ALL' ? 'All Time' : r === 'TODAY' ? '24H' : r === 'WEEK' ? '7D' : r === 'MONTH' ? '30D' : 'Custom'}
+                    </button>
+                ))}
+             </div>
+             
+             {/* Custom Date Inputs */}
+             {timeRange === 'CUSTOM' && (
+                 <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+                     <input 
+                        type="date" 
+                        className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300 outline-none focus:border-indigo-500"
+                        value={customStart}
+                        onChange={(e) => setCustomStart(e.target.value)}
+                     />
+                     <span className="text-slate-500">-</span>
+                     <input 
+                        type="date" 
+                        className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-300 outline-none focus:border-indigo-500"
+                        value={customEnd}
+                        onChange={(e) => setCustomEnd(e.target.value)}
+                     />
+                 </div>
+             )}
+
+             <div className="text-right">
                 {isCloudConnected ? (
-                    <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-2 text-emerald-400 text-sm font-semibold">
-                            <Wifi className="w-4 h-4" />
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                            Live Cloud (Supabase)
+                    <div className="flex items-center gap-3 justify-end">
+                        <div className={`flex items-center gap-2 text-sm font-semibold ${timeRange === 'ALL' ? 'text-emerald-400' : 'text-slate-400'}`}>
+                            {timeRange === 'ALL' ? (
+                                <>
+                                    <Wifi className="w-4 h-4" />
+                                    <span className="relative flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                    </span>
+                                    Live Stream
+                                </>
+                            ) : (
+                                <><Filter className="w-3 h-3" /> Historical View</>
+                            )}
                         </div>
                         <button 
-                            onClick={refreshData}
+                            onClick={() => refreshData()}
                             className={`p-1 hover:bg-slate-800 rounded transition-colors ${isRefreshing ? 'animate-spin' : ''}`}
                             title="Force Refresh"
                         >
@@ -140,30 +302,36 @@ const AdminDashboard: React.FC = () => {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           <StatCard 
             icon={<Users className="text-blue-400" />}
-            label="Total Scans"
+            label={timeRange === 'ALL' ? "Lifetime Scans" : "Scans in Period"}
             value={stats.totalScans.toLocaleString()}
             subValue="Documents processed"
           />
            <StatCard 
             icon={<Eye className="text-orange-400" />}
-            label="Site Visits"
+            label="Total Visits"
             value={stats.totalVisits ? stats.totalVisits.toLocaleString() : (logs.filter(l => l.type === 'VISIT').length + '+')}
-            subValue="Page loads"
+            subValue={timeRange === 'ALL' ? "All-time traffic" : "Traffic in period"}
           />
           <StatCard 
             icon={<Database className="text-purple-400" />}
-            label="Fixes Generated"
+            label="Total Fixes"
             value={stats.totalFixes.toLocaleString()}
             subValue="Rewrite operations"
           />
           <StatCard 
+            icon={<Star className="text-yellow-400 fill-yellow-400" />}
+            label="Satisfaction"
+            value={avgRating > 0 ? avgRating.toFixed(1) : '-'}
+            subValue={avgRating > 0 ? 'Avg. Rating' : 'No ratings yet'}
+          />
+          <StatCard 
             icon={<DollarSign className="text-emerald-400" />}
-            label="Est. API Cost"
+            label="Est. Cost"
             value={`$${estimatedCost.toFixed(4)}`}
-            subValue={`${(stats.tokensUsedEstimate / 1000).toFixed(1)}k tokens used`}
+            subValue={`${(stats.tokensUsedEstimate / 1000).toFixed(1)}k tokens`}
           />
         </div>
 
@@ -175,8 +343,8 @@ const AdminDashboard: React.FC = () => {
              {/* Usage Trend */}
              <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 shadow-lg">
                 <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
-                    Usage Trend
-                    <span className="text-xs font-normal text-slate-400 bg-slate-700 px-2 py-1 rounded">Last 5 Days</span>
+                    Usage Snapshot
+                    <span className="text-xs font-normal text-slate-400 bg-slate-700 px-2 py-1 rounded">Recent Activity</span>
                 </h3>
                 <div className="h-[250px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -234,39 +402,68 @@ const AdminDashboard: React.FC = () => {
 
           {/* Activity Log */}
           <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 shadow-lg flex flex-col h-[600px]">
-             <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                <Clock className="w-5 h-5 text-slate-400" />
-                Live Activity Log
-             </h3>
+             <div className="flex justify-between items-center mb-4">
+                 <h3 className="text-lg font-bold flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-slate-400" />
+                    {timeRange === 'ALL' ? 'Live Activity Log' : 'Historical Logs'}
+                 </h3>
+                 {timeRange === 'ALL' && (
+                    <span className="inline-flex relative h-3 w-3">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+                    </span>
+                 )}
+             </div>
              <div className="flex-1 overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-slate-600">
                 {logs.length === 0 && (
-                    <div className="text-slate-500 text-center py-10">No activity recorded yet.</div>
+                    <div className="text-slate-500 text-center py-10">No logs found for this period.</div>
                 )}
-                {logs.map((log, i) => (
-                    <div key={i} className="text-sm p-3 rounded bg-slate-700/50 border border-slate-700 flex flex-col gap-1">
-                        <div className="flex justify-between items-center">
-                            <span className={`font-bold text-xs px-2 py-0.5 rounded ${
-                                log.type === 'ERROR' ? 'bg-red-500/20 text-red-300' : 
-                                log.type === 'FIX' ? 'bg-purple-500/20 text-purple-300' : 
-                                log.type === 'VISIT' ? 'bg-orange-500/20 text-orange-300' :
-                                'bg-blue-500/20 text-blue-300'
-                            }`}>
-                                {log.type}
-                            </span>
-                            <span className="text-slate-500 text-xs">
-                                {new Date(log.timestamp).toLocaleTimeString()}
-                            </span>
+                {logs.map((log, i) => {
+                    let feedbackContent = null;
+                    if (log.type === 'FEEDBACK') {
+                        try {
+                            const f = JSON.parse(log.details);
+                            feedbackContent = (
+                                <div className="mt-1 bg-slate-800 p-2 rounded border border-slate-600">
+                                    <div className="flex gap-1 mb-1">
+                                        {[...Array(5)].map((_, idx) => (
+                                            <Star key={idx} className={`w-3 h-3 ${idx < f.rating ? 'fill-yellow-400 text-yellow-400' : 'text-slate-600'}`} />
+                                        ))}
+                                    </div>
+                                    <p className="text-slate-300 italic">"{f.comment}"</p>
+                                </div>
+                            );
+                        } catch(e) {}
+                    }
+
+                    return (
+                        <div key={i} className="text-sm p-3 rounded bg-slate-700/50 border border-slate-700 flex flex-col gap-1 animate-in fade-in slide-in-from-left-2 duration-300">
+                            <div className="flex justify-between items-center">
+                                <span className={`font-bold text-xs px-2 py-0.5 rounded ${
+                                    log.type === 'ERROR' ? 'bg-red-500/20 text-red-300' : 
+                                    log.type === 'FIX' ? 'bg-purple-500/20 text-purple-300' : 
+                                    log.type === 'VISIT' ? 'bg-orange-500/20 text-orange-300' :
+                                    log.type === 'FEEDBACK' ? 'bg-yellow-500/20 text-yellow-300' :
+                                    'bg-blue-500/20 text-blue-300'
+                                }`}>
+                                    {log.type}
+                                </span>
+                                <span className="text-slate-500 text-xs">
+                                    {new Date(log.timestamp).toLocaleTimeString()} {timeRange !== 'TODAY' && timeRange !== 'ALL' && <span className="text-slate-600 ml-1">({new Date(log.timestamp).toLocaleDateString()})</span>}
+                                </span>
+                            </div>
+                            {log.type === 'FEEDBACK' ? feedbackContent : (
+                                <p className="text-slate-300 truncate">{log.details}</p>
+                            )}
                         </div>
-                        <p className="text-slate-300 truncate">{log.details}</p>
-                    </div>
-                ))}
+                    );
+                })}
              </div>
           </div>
         </div>
-      </div>
 
-      {/* Manual Connect Modal */}
-      {showConnectModal && (
+        {/* Manual Connect Modal */}
+        {showConnectModal && (
           <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
               <div className="bg-slate-800 p-8 rounded-xl border border-slate-700 w-full max-w-md shadow-2xl relative">
                   <button 
@@ -313,24 +510,10 @@ const AdminDashboard: React.FC = () => {
                   </div>
               </div>
           </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
-
-const StatCard: React.FC<{ icon: React.ReactNode, label: string, value: string, subValue: string }> = ({ icon, label, value, subValue }) => (
-    <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg">
-        <div className="flex items-center gap-4">
-            <div className="p-3 bg-slate-700 rounded-lg">
-                {icon}
-            </div>
-            <div>
-                <p className="text-slate-400 text-sm font-medium">{label}</p>
-                <h4 className="text-2xl font-bold text-white">{value}</h4>
-                <p className="text-slate-500 text-xs mt-1">{subValue}</p>
-            </div>
-        </div>
-    </div>
-);
 
 export default AdminDashboard;

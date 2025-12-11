@@ -1,9 +1,12 @@
-
 import React, { useState, useEffect } from 'react';
 import { AnalysisResult, AppStatus, FixResult, FixOptions } from '../types';
 import ScoreGauge from './ScoreGauge';
-import { Wand2, AlertTriangle, CheckCircle2, ArrowRight, Copy, Check, ChevronDown, ChevronUp, BookOpen, FileText, Star, MessageSquare, Send, ThumbsUp, Settings2 } from 'lucide-react';
+import { Wand2, AlertTriangle, CheckCircle2, ArrowRight, Copy, Check, ChevronDown, ChevronUp, BookOpen, FileText, Star, MessageSquare, Send, ThumbsUp, Settings2, Download, Split, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { downloadDocx, downloadPdf } from '../services/exportService';
+import { Telemetry } from '../services/telemetry';
+// @ts-ignore
+import * as Diff from 'diff';
 
 interface AnalysisViewProps {
   originalText: string;
@@ -54,6 +57,26 @@ const TextDisplay: React.FC<{ text: string; className?: string }> = ({ text, cla
     );
 };
 
+// Component to render color-coded Diff
+const DiffDisplay: React.FC<{ oldText: string, newText: string }> = ({ oldText, newText }) => {
+    const diff = Diff.diffWords(oldText, newText);
+
+    return (
+        <div className="whitespace-pre-wrap leading-relaxed text-sm md:text-base font-serif text-slate-700">
+            {diff.map((part: any, index: number) => {
+                const color = part.added ? 'bg-green-100 text-green-800 border-b-2 border-green-300' :
+                              part.removed ? 'bg-red-100 text-red-800 line-through decoration-red-500 opacity-60' : 
+                              'text-slate-600';
+                return (
+                    <span key={index} className={`${color} px-0.5 rounded-sm transition-colors`}>
+                        {part.value}
+                    </span>
+                );
+            })}
+        </div>
+    );
+};
+
 const AnalysisView: React.FC<AnalysisViewProps> = ({ 
   originalText, 
   analysis, 
@@ -65,6 +88,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
 }) => {
   const isFixing = status === AppStatus.FIXING;
   const [copied, setCopied] = useState(false);
+  const [viewMode, setViewMode] = useState<'clean' | 'diff'>('clean');
   
   // Customization Options
   const [includeCitations, setIncludeCitations] = useState(false);
@@ -84,6 +108,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
     setHoverRating(0);
     setFeedbackText('');
     setIsFeedbackSubmitted(false);
+    setViewMode('clean'); // Reset to clean view on new fix
   }, [fixResult]);
 
   const handleCopy = () => {
@@ -114,7 +139,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
           toast.error("Please select a star rating");
           return;
       }
-      // Simulation of feedback submission
+      Telemetry.logFeedback(rating, feedbackText);
       setIsFeedbackSubmitted(true);
       toast.success("Thanks! Your feedback improves our AI.");
   };
@@ -174,13 +199,50 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
                 {fixResult && <CheckCircle2 className="h-4 w-4 text-green-500" />}
             </h3>
             {fixResult && (
-               <div className="flex items-center gap-3">
-                   <span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-green-100 text-green-800">
-                     Uniqueness: {100 - fixResult.newPlagiarismScore}%
+               <div className="flex items-center gap-2">
+                    {/* View Mode Toggle */}
+                    <div className="flex bg-slate-100 rounded-lg p-0.5 mr-2">
+                        <button 
+                            onClick={() => setViewMode('clean')}
+                            className={`p-1.5 rounded-md transition-all flex items-center gap-1 ${viewMode === 'clean' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                            title="Clean View"
+                        >
+                            <Eye className="w-3.5 h-3.5" />
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('diff')}
+                            className={`p-1.5 rounded-md transition-all flex items-center gap-1 ${viewMode === 'diff' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
+                            title="Show Changes (Diff)"
+                        >
+                            <Split className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
+
+                   <span className="hidden md:inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-green-100 text-green-800 mr-2">
+                     Score: {100 - fixResult.newPlagiarismScore}/100
                    </span>
+                   
+                   {/* Export Actions */}
+                   <button 
+                    onClick={() => downloadDocx(fixResult.rewrittenText)}
+                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                    title="Export as DOCX"
+                   >
+                       <FileText className="h-4 w-4" />
+                   </button>
+                   <button 
+                    onClick={() => downloadPdf(fixResult.rewrittenText, 100 - fixResult.newPlagiarismScore, analysis.originalScore)}
+                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                    title="Export Verification Certificate (PDF)"
+                   >
+                       <Download className="h-4 w-4" />
+                   </button>
+                   
+                   <div className="h-4 w-px bg-slate-200 mx-1"></div>
+
                    <button 
                     onClick={handleCopy}
-                    className="text-slate-400 hover:text-indigo-600 transition-colors"
+                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
                     title="Copy text"
                    >
                        {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
@@ -296,7 +358,12 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
               </div>
             ) : (
               <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
-                <TextDisplay text={fixResult.rewrittenText} className="text-slate-800 font-medium" />
+                {/* Dynamic View Mode: Diff vs Clean */}
+                {viewMode === 'clean' ? (
+                     <TextDisplay text={fixResult.rewrittenText} className="text-slate-800 font-medium" />
+                ) : (
+                     <DiffDisplay oldText={originalText} newText={fixResult.rewrittenText} />
+                )}
                 
                 {/* References Section */}
                 {fixResult.references && fixResult.references.length > 0 && (

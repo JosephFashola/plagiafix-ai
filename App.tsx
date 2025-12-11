@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import Header from './components/Header';
@@ -77,8 +76,8 @@ const App: React.FC = () => {
     // Suggesting to the user that this might take a moment due to high quality model
     const loadingToast = toast.loading(
         options.includeCitations 
-        ? 'Researching citations & Rewriting... (This will take longer)' 
-        : 'Rewriting with Gemini 3 Pro...'
+        ? 'Rapidly Researching & Rewriting...' 
+        : 'Rewriting in Turbo Mode...'
     );
     
     try {
@@ -157,7 +156,7 @@ const App: React.FC = () => {
 
         {/* File Upload View */}
         {!document && status !== AppStatus.ANALYZING && (
-          <FileUpload onTextLoaded={handleTextLoaded} isLoading={status === AppStatus.ANALYZING} />
+          <FileUpload onTextLoaded={handleTextLoaded} isLoading={false} />
         )}
 
         {/* Analysis & Fix View */}

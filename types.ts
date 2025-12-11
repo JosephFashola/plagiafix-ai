@@ -41,10 +41,11 @@ export interface AppStats {
   totalVisits: number; // New metric
   tokensUsedEstimate: number;
   lastActive: string;
+  firstActive?: string; // Tracks when the database row was created (first deployment)
 }
 
 export interface LogEntry {
   timestamp: number;
-  type: 'SCAN' | 'FIX' | 'ERROR' | 'VISIT';
+  type: 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'FEEDBACK';
   details: string;
 }

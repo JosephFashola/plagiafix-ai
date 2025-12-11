@@ -12,6 +12,15 @@ export default defineConfig(({ mode }) => {
       // Ensure API_KEY is available in the client build
       'process.env.API_KEY': JSON.stringify(process.env.API_KEY || env.API_KEY || '')
     },
+    server: {
+      port: 8080,
+      host: true
+    },
+    preview: {
+      port: 8080,
+      host: true,
+      allowedHosts: true
+    },
     build: {
       outDir: 'dist',
       sourcemap: false

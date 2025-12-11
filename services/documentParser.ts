@@ -19,13 +19,13 @@ export const parseFile = async (file: File): Promise<string> => {
 };
 
 const parsePdf = async (file: File): Promise<string> => {
-  // Dynamically import pdfjs-dist only when needed to keep initial bundle size small
+  // Dynamically import pdfjs-dist
   const pdfjsLib = await import('pdfjs-dist');
   
-  // Configure worker
-  // Note: We use a CDN for the worker to avoid complex Vite worker configuration
+  // Configure worker using the exact version from index.html import map
+  // CRITICAL: This version must match the installed 'pdfjs-dist' version exactly.
   if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@5.4.449/build/pdf.worker.min.mjs';
   }
 
   const arrayBuffer = await file.arrayBuffer();
@@ -42,7 +42,6 @@ const parsePdf = async (file: File): Promise<string> => {
     const textContent = await page.getTextContent();
     
     // Join items with a space. 
-    // PDF text extraction is tricky; this is a basic heuristic.
     const pageText = textContent.items
       .map((item: any) => item.str)
       .join(' ');
@@ -59,9 +58,8 @@ const parsePdf = async (file: File): Promise<string> => {
 
 const parseDocx = async (file: File): Promise<string> => {
   // Dynamically import mammoth
-  // esm.sh modules for CommonJS libraries often attach the export to .default
-  // When bundled with Vite, it usually behaves as a standard module.
   const mammothModule = await import('mammoth');
+  // Handle default export differences in build environments
   const mammoth = mammothModule.default || mammothModule;
 
   const arrayBuffer = await file.arrayBuffer();
