@@ -1,6 +1,7 @@
+
 import toast from 'react-hot-toast';
 
-export const downloadDocx = async (text: string, filename: string = 'PlagiaFix_Rewritten') => {
+export const downloadDocx = async (text: string, filename: string = 'PlagiaFix_Rewritten', references?: string[]) => {
     const loadingToast = toast.loading('Generating DOCX...');
     try {
         const docxModule = await import('docx');
@@ -53,6 +54,22 @@ export const downloadDocx = async (text: string, filename: string = 'PlagiaFix_R
                 spacing: { after: 200 } // Professional spacing
             }));
         });
+
+        // 4. Append References if provided
+        if (references && references.length > 0) {
+            docChildren.push(new Paragraph({
+                text: "References",
+                heading: HeadingLevel.HEADING_2,
+                spacing: { before: 240, after: 120 }
+            }));
+
+            references.forEach(ref => {
+                docChildren.push(new Paragraph({
+                    children: parseBoldText(ref, TextRun),
+                    spacing: { after: 120 }
+                }));
+            });
+        }
 
         const doc = new Document({
             sections: [{

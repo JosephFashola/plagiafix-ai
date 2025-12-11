@@ -1,13 +1,16 @@
+
 import React, { useState, useEffect } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import Header from './components/Header';
 import FileUpload from './components/FileUpload';
 import AnalysisView from './components/AnalysisView';
-import AdminDashboard from './components/AdminDashboard'; // Import Admin
+import AdminDashboard from './components/AdminDashboard'; 
 import { AppStatus, DocumentState, AnalysisResult, FixResult, FixOptions } from './types';
 import { analyzeDocument, fixPlagiarism, checkApiKey } from './services/geminiService';
-import { Telemetry } from './services/telemetry'; // Import Telemetry
+import { Telemetry } from './services/telemetry'; 
 import { Loader2 } from 'lucide-react';
+
+const SESSION_KEY = 'plagiafix_active_session_v1';
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
@@ -16,19 +19,82 @@ const App: React.FC = () => {
   const [fixResult, setFixResult] = useState<FixResult | null>(null);
   const [scoreHistory, setScoreHistory] = useState<number[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(true);
 
-  // Check for Admin Key on Mount & Log Visit
+  // Check for Admin Key & Restore Session on Mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    // SECRET KEY: ?admin_key=plagiafix_master_2025
+    
+    // 1. Admin Check
     if (params.get('admin_key') === 'plagiafix_master_2025') {
         setIsAdmin(true);
         toast.success("Welcome back, Admin.", { icon: '🔐' });
-    } else {
-        // Log a visit if it's a regular user
+        setIsRestoring(false);
+        return;
+    } 
+
+    // 2. Session Restore Logic (Perfect User Experience)
+    const restoreSession = () => {
+        try {
+            const saved = localStorage.getItem(SESSION_KEY);
+            if (saved) {
+                const session = JSON.parse(saved);
+                // Only restore if valid data exists and timestamp is recent (< 24 hours)
+                if (session.timestamp && (Date.now() - session.timestamp < 86400000)) {
+                    if (session.document) setDocument(session.document);
+                    if (session.analysis) setAnalysis(session.analysis);
+                    if (session.fixResult) setFixResult(session.fixResult);
+                    if (session.scoreHistory) setScoreHistory(session.scoreHistory);
+                    
+                    // Don't restore "ANALYZING" or "FIXING" states directly to avoid stuck loaders
+                    // If it was processing, revert to IDLE or COMPLETED depending on data presence
+                    if (session.status === AppStatus.ANALYZING || session.status === AppStatus.FIXING) {
+                        setStatus(session.analysis ? AppStatus.IDLE : AppStatus.IDLE);
+                    } else {
+                        setStatus(session.status);
+                    }
+                    
+                    if (session.document) {
+                         toast.success("Session Restored", { position: 'bottom-right', duration: 2000, icon: '🔄' });
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn("Failed to restore session", e);
+            localStorage.removeItem(SESSION_KEY);
+        } finally {
+            setIsRestoring(false);
+        }
+    };
+
+    restoreSession();
+    
+    // Log visit if regular user
+    if (!isAdmin) {
         Telemetry.logVisit();
     }
   }, []);
+
+  // Save Session on Change
+  useEffect(() => {
+      if (isAdmin) return;
+      
+      const sessionData = {
+          timestamp: Date.now(),
+          status,
+          document,
+          analysis,
+          fixResult,
+          scoreHistory
+      };
+      
+      // Debounce saving slightly or just save (localStorage is sync and fast for this size)
+      if (document || analysis) {
+          localStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
+      } else {
+          localStorage.removeItem(SESSION_KEY);
+      }
+  }, [status, document, analysis, fixResult, scoreHistory, isAdmin]);
 
   const handleTextLoaded = async (text: string, fileName: string) => {
     if (!checkApiKey()) {
@@ -36,35 +102,28 @@ const App: React.FC = () => {
       return;
     }
 
-    setDocument({ originalText: text, fileName });
+    const newDoc = { originalText: text, fileName };
+    setDocument(newDoc);
     setStatus(AppStatus.ANALYZING);
-    setScoreHistory([]); // Reset history for new document
+    setScoreHistory([]); 
     
     try {
       const result = await analyzeDocument(text);
       setAnalysis(result);
       setScoreHistory([result.plagiarismScore]);
-      setStatus(AppStatus.IDLE); // Ready for next step
+      setStatus(AppStatus.IDLE); 
       toast.success('Analysis complete!', { duration: 3000 });
-      
-      // LOG TELEMETRY
       Telemetry.logScan(text.length);
 
     } catch (error: any) {
       console.error(error);
-      
       let msg = 'Analysis failed. Please try again.';
-      if (error.message?.includes('token count')) {
-          msg = 'Document is too massive even for chunks. Please split it manually.';
-      } else if (error.message?.includes('quota')) {
-          msg = 'API Quota exceeded. Please wait a moment.';
+      if (error.message?.includes('quota') || error.message?.includes('429')) {
+          msg = 'High server traffic. Please wait a moment and try again.';
       }
-
       toast.error(msg);
       setStatus(AppStatus.ERROR);
       setDocument(null);
-      
-      // LOG ERROR
       Telemetry.logError(`Analysis failed: ${error.message}`);
     }
   };
@@ -73,7 +132,6 @@ const App: React.FC = () => {
     if (!document || !analysis) return;
 
     setStatus(AppStatus.FIXING);
-    // Suggesting to the user that this might take a moment due to high quality model
     const loadingToast = toast.loading(
         options.includeCitations 
         ? 'Rapidly Researching & Rewriting...' 
@@ -87,28 +145,41 @@ const App: React.FC = () => {
       setStatus(AppStatus.COMPLETED);
       toast.dismiss(loadingToast);
       toast.success('Plagiarism fixed! Document is now unique.', { duration: 5000 });
-      
-      // LOG TELEMETRY
       Telemetry.logFix(document.originalText.length);
 
     } catch (error: any) {
       console.error(error);
       toast.dismiss(loadingToast);
-      toast.error('Failed to rewrite document. Please try again.');
-      setStatus(AppStatus.IDLE); // Go back to analysis view state
       
-      // LOG ERROR
+      let msg = 'Failed to rewrite document. Please try again.';
+      if (error.message?.includes('quota') || error.message?.includes('429')) {
+          msg = 'Server is busy (Rate Limit). Please wait 30 seconds.';
+      }
+
+      toast.error(msg);
+      setStatus(AppStatus.IDLE); 
       Telemetry.logError(`Fix failed: ${error.message}`);
     }
   };
 
   const handleReset = () => {
-    setDocument(null);
-    setAnalysis(null);
-    setFixResult(null);
-    setScoreHistory([]);
-    setStatus(AppStatus.IDLE);
+    if (window.confirm("Start a new scan? This will clear current results.")) {
+        setDocument(null);
+        setAnalysis(null);
+        setFixResult(null);
+        setScoreHistory([]);
+        setStatus(AppStatus.IDLE);
+        localStorage.removeItem(SESSION_KEY);
+    }
   };
+
+  if (isRestoring) {
+      return (
+          <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+              <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+          </div>
+      );
+  }
 
   return (
     <>

@@ -1,4 +1,5 @@
 
+
 export enum AppStatus {
   IDLE = 'IDLE',
   ANALYZING = 'ANALYZING',
@@ -7,18 +8,31 @@ export enum AppStatus {
   ERROR = 'ERROR'
 }
 
+export interface ParagraphAnalysis {
+  text: string;
+  riskScore: number; // 0-100
+  reason?: string;
+}
+
 export interface AnalysisResult {
   originalScore: number;
   plagiarismScore: number; // 0-100, where 100 is high plagiarism
   critique: string;
   detectedIssues: string[];
+  paragraphBreakdown: ParagraphAnalysis[];
 }
+
+export type HumanizeMode = 'Standard' | 'Ghost' | 'Academic' | 'Creative';
+
+export type CitationStyle = 'APA' | 'MLA' | 'Chicago' | 'Harvard' | 'IEEE';
 
 export interface FixOptions {
   includeCitations: boolean;
-  academicLevel: 'High School' | 'Undergraduate' | 'PhD/Professional';
-  tone: 'Standard' | 'Formal' | 'Storytelling' | 'Opinionated';
+  citationStyle?: CitationStyle;
+  mode: HumanizeMode;
+  strength: number; // 1-100 (Intensity of rewriting)
   dialect: 'US' | 'UK' | 'CA' | 'AU';
+  styleSample?: string; // New: User's own writing style
 }
 
 export interface FixResult {
