@@ -28,6 +28,7 @@ const AdminDashboard: React.FC = () => {
   const [isCloudConnected, setIsCloudConnected] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [countryData, setCountryData] = useState<{name: string, value: number}[]>([]);
+  const [chartData, setChartData] = useState<{name: string, scans: number, fixes: number}[]>([]);
   const [avgRating, setAvgRating] = useState(0);
   
   // Date Filtering State
@@ -40,14 +41,17 @@ const AdminDashboard: React.FC = () => {
   const [manualUrl, setManualUrl] = useState('');
   const [manualKey, setManualKey] = useState('');
 
-  // Process Logs to extract Metrics
-  const processLogs = (currentLogs: LogEntry[]) => {
+  // Process Logs to extract Metrics & Chart Data
+  const processLogs = (currentLogs: LogEntry[], range: TimeRange) => {
       const countries: Record<string, number> = {};
       let totalRating = 0;
       let ratingCount = 0;
+      
+      // Chart Aggregation buckets
+      const chartBuckets: Record<string, {scans: number, fixes: number}> = {};
 
       currentLogs.forEach(log => {
-          // Parse Country
+          // 1. Process Metadata
           if (log.type === 'VISIT' && log.details.includes('[')) {
               const match = log.details.match(/\[([A-Z]{2})\]/);
               if (match) {
@@ -55,7 +59,6 @@ const AdminDashboard: React.FC = () => {
                   countries[code] = (countries[code] || 0) + 1;
               }
           }
-          // Parse Rating
           if (log.type === 'FEEDBACK') {
               try {
                   const f = JSON.parse(log.details);
@@ -65,14 +68,45 @@ const AdminDashboard: React.FC = () => {
                   }
               } catch (e) { /* ignore */ }
           }
+
+          // 2. Process Chart Data
+          const date = new Date(log.timestamp);
+          let key = '';
+          
+          if (range === 'TODAY') {
+              // Group by Hour for Today
+              key = date.toLocaleTimeString([], { hour: '2-digit', hour12: true }); 
+          } else if (range === 'MONTH' || range === 'YEAR' || range === 'ALL') {
+              // Group by Date (MM/DD)
+              key = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          } else {
+              // Week: Day Name
+              key = date.toLocaleDateString([], { weekday: 'short' });
+          }
+
+          if (!chartBuckets[key]) chartBuckets[key] = { scans: 0, fixes: 0 };
+          
+          if (log.type === 'SCAN') chartBuckets[key].scans++;
+          if (log.type === 'FIX') chartBuckets[key].fixes++;
       });
       
+      // Transform Maps to Arrays
       const cData = Object.entries(countries)
         .map(([name, value]) => ({ name, value }))
         .sort((a, b) => b.value - a.value)
         .slice(0, 5); // Top 5
-        
+      
+      // Sort Chart Data by time implies we need to handle the keys. 
+      // For simplicity in this demo, we reverse the array assuming logs are new->old,
+      // but Recharts needs old->new.
+      // A robust way is to rely on the fact that logs come in order.
+      // We will just map the buckets.
+      const processedChartData = Object.entries(chartBuckets)
+          .map(([name, data]) => ({ name, ...data }))
+          .reverse(); // Logs are usually Newest first, so reversing gives Oldest first for chart x-axis
+
       setCountryData(cData);
+      setChartData(processedChartData.length > 0 ? processedChartData : [{ name: 'No Activity', scans: 0, fixes: 0 }]);
       setAvgRating(ratingCount > 0 ? (totalRating / ratingCount) : 0);
   };
 
@@ -81,6 +115,8 @@ const AdminDashboard: React.FC = () => {
       let start = new Date();
       
       switch (timeRange) {
+          case 'ALL':
+              return { start: new Date(0), end: now }; // Epoch (1970) to Now
           case 'TODAY':
               start.setHours(0, 0, 0, 0);
               break;
@@ -106,33 +142,26 @@ const AdminDashboard: React.FC = () => {
   const refreshData = async () => {
       setIsRefreshing(true);
       try {
-          if (timeRange === 'ALL') {
-              // 1. ALL TIME MODE (Uses Aggregated Stats Table - Fast)
-              const newStats = await Telemetry.getStats(true);
-              const newLogs = await Telemetry.getLogs(); // Get most recent logs
-              setStats(newStats);
-              setLogs(newLogs);
-              processLogs(newLogs);
-          } else {
-              // 2. RANGE MODE (Queries Counts from Logs Table)
-              const dates = getRangeDates();
-              if (dates) {
-                  const rangeStats = await Telemetry.getRangeStats(dates.start, dates.end);
-                  
-                  // Merge with deployment date from global stats just for display
-                  const globalStats = await Telemetry.getStats(true).catch(() => ({ firstActive: undefined }));
-                  
-                  // @ts-ignore
-                  setStats({
-                      ...rangeStats,
-                      firstActive: globalStats.firstActive
-                  });
-                  
-                  // Also fetch logs strictly for this range for the list view
-                  const rangeLogs = await Telemetry.getLogs(100, dates.start, dates.end);
-                  setLogs(rangeLogs);
-                  processLogs(rangeLogs);
-              }
+          const globalMeta = await Telemetry.getStats(true).catch(() => null);
+          const dates = getRangeDates();
+          if (dates) {
+              const rangeStats = await Telemetry.getRangeStats(dates.start, dates.end);
+              
+              // @ts-ignore
+              setStats({
+                  totalScans: rangeStats.totalScans || 0,
+                  totalFixes: rangeStats.totalFixes || 0,
+                  totalErrors: rangeStats.totalErrors || 0,
+                  totalVisits: rangeStats.totalVisits || 0,
+                  tokensUsedEstimate: rangeStats.tokensUsedEstimate || 0,
+                  lastActive: rangeStats.lastActive || new Date().toISOString(),
+                  firstActive: globalMeta?.firstActive // Use real deployment date
+              });
+
+              // Fetch MORE logs (500) to populate the chart better
+              const rangeLogs = await Telemetry.getLogs(500, dates.start, dates.end);
+              setLogs(rangeLogs);
+              processLogs(rangeLogs, timeRange);
           }
       } catch (error) {
           console.warn("Failed to refresh admin data:", error);
@@ -145,24 +174,36 @@ const AdminDashboard: React.FC = () => {
       setIsRefreshing(false);
   };
 
-  // Re-fetch when time range changes
   useEffect(() => {
       refreshData();
   }, [timeRange, customStart, customEnd]);
 
   useEffect(() => {
-    // Setup Realtime Subscription ONLY if in ALL mode (to keep live updates flowing)
-    if (timeRange !== 'ALL') return;
+    if (timeRange !== 'ALL' && timeRange !== 'TODAY') return;
 
     const unsubscribe = Telemetry.subscribe(
-        (newStats) => {
-            setStats(prev => newStats);
-        },
+        (newStats) => {},
         (newLog) => {
             setLogs(prev => {
-                const updated = [newLog, ...prev].slice(0, 50);
-                processLogs(updated);
+                const updated = [newLog, ...prev].slice(0, 500); // Keep buffer larger
+                processLogs(updated, timeRange);
                 return updated;
+            });
+
+            setStats(prev => {
+                if (!prev) return prev;
+                const next = { ...prev };
+                if (newLog.type === 'SCAN') {
+                    next.totalScans++;
+                    next.tokensUsedEstimate += 2500; 
+                }
+                if (newLog.type === 'FIX') {
+                    next.totalFixes++;
+                    next.tokensUsedEstimate += 2000;
+                }
+                if (newLog.type === 'ERROR') next.totalErrors++;
+                if (newLog.type === 'VISIT') next.totalVisits++;
+                return next;
             });
         }
     );
@@ -187,14 +228,6 @@ const AdminDashboard: React.FC = () => {
           <RefreshCw className="animate-spin h-5 w-5" /> Connecting to Global Telemetry...
       </div>
   );
-
-  const trendData = [
-    { name: 'Mon', scans: Math.max(0, stats.totalScans - 20) },
-    { name: 'Tue', scans: Math.max(0, stats.totalScans - 15) },
-    { name: 'Wed', scans: Math.max(0, stats.totalScans - 10) },
-    { name: 'Thu', scans: Math.max(0, stats.totalScans - 5) },
-    { name: 'Fri', scans: stats.totalScans },
-  ];
 
   const estimatedCost = (stats.tokensUsedEstimate / 1000000) * 5;
 
@@ -344,15 +377,19 @@ const AdminDashboard: React.FC = () => {
              <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 shadow-lg">
                 <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
                     Usage Snapshot
-                    <span className="text-xs font-normal text-slate-400 bg-slate-700 px-2 py-1 rounded">Recent Activity</span>
+                    <span className="text-xs font-normal text-slate-400 bg-slate-700 px-2 py-1 rounded">Activity</span>
                 </h3>
                 <div className="h-[250px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={trendData}>
+                    <AreaChart data={chartData}>
                     <defs>
                         <linearGradient id="colorScans" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
                         <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                        </linearGradient>
+                        <linearGradient id="colorFixes" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
                         </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -362,6 +399,7 @@ const AdminDashboard: React.FC = () => {
                         contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#fff' }}
                     />
                     <Area type="monotone" dataKey="scans" stroke="#6366f1" fillOpacity={1} fill="url(#colorScans)" />
+                    <Area type="monotone" dataKey="fixes" stroke="#a855f7" fillOpacity={1} fill="url(#colorFixes)" />
                     </AreaChart>
                 </ResponsiveContainer>
                 </div>
