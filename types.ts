@@ -1,5 +1,4 @@
 
-
 export enum AppStatus {
   IDLE = 'IDLE',
   ANALYZING = 'ANALYZING',
@@ -11,7 +10,23 @@ export enum AppStatus {
 export interface ParagraphAnalysis {
   text: string;
   riskScore: number; // 0-100
-  reason?: string;
+  matchType?: 'AI' | 'PLAGIARISM' | 'MIXED' | 'SAFE'; // New: Why was it flagged?
+  evidence?: string; // New: Specific proof (URL or Math stat)
+}
+
+export interface SourceMatch {
+  url: string;
+  title: string;
+  snippet: string;
+  similarity: number;
+}
+
+export interface ForensicData {
+  avgSentenceLength: number;
+  sentenceVariance: number; // Burstiness
+  uniqueWordRatio: number; // Perplexity proxy
+  aiTriggerWordsFound: string[];
+  readabilityScore: number;
 }
 
 export interface AnalysisResult {
@@ -20,6 +35,8 @@ export interface AnalysisResult {
   critique: string;
   detectedIssues: string[];
   paragraphBreakdown: ParagraphAnalysis[];
+  sourcesFound: SourceMatch[]; // REAL web sources
+  forensics: ForensicData; // Mathematical analysis
 }
 
 export type HumanizeMode = 'Standard' | 'Ghost' | 'Academic' | 'Creative';

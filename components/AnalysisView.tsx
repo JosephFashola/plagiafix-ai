@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect } from 'react';
-import { AnalysisResult, AppStatus, FixResult, FixOptions, HumanizeMode, ParagraphAnalysis, CitationStyle } from '../types';
+import { AnalysisResult, AppStatus, FixResult, FixOptions, HumanizeMode, ParagraphAnalysis, CitationStyle, ForensicData } from '../types';
 import ScoreGauge from './ScoreGauge';
-import { Wand2, AlertTriangle, CheckCircle2, ArrowRight, Copy, Check, ChevronDown, ChevronUp, BookOpen, FileText, Star, MessageSquare, Send, ThumbsUp, Settings2, Download, Split, Eye, Ghost, GraduationCap, PenTool, Sparkles, Flame, Zap, Fingerprint, User, Quote, Share2, Twitter, Linkedin, Facebook } from 'lucide-react';
+import { Wand2, AlertTriangle, CheckCircle2, ArrowRight, Copy, Check, Eye, BookOpen, FileText, Star, Sparkles, Flame, Zap, Fingerprint, User, Quote, Share2, Twitter, Linkedin, Facebook, Microscope, Search, BarChart3, ExternalLink, Download, Split, Ghost, GraduationCap, PenTool, RefreshCw, X, ChevronDown, ChevronUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { downloadDocx, downloadPdf } from '../services/exportService';
 import { Telemetry } from '../services/telemetry';
@@ -19,7 +19,6 @@ interface AnalysisViewProps {
   scoreHistory: number[];
 }
 
-// --- SOCIAL SHARE COMPONENT ---
 const SocialShare: React.FC = () => {
     const shareUrl = window.location.href;
     const shareText = "I just humanized my document and bypassed AI detection using PlagiaFix! 🚀 It's free and insanely powerful.";
@@ -74,25 +73,20 @@ const SocialShare: React.FC = () => {
     );
 };
 
-// --- HEATMAP DISPLAY COMPONENT ---
 const HeatmapDisplay: React.FC<{ 
     text: string, 
     paragraphs: ParagraphAnalysis[],
     className?: string 
 }> = ({ text, paragraphs, className }) => {
-    // We split original text by paragraphs to attempt to match risk scores
     const splitOriginal = text.split(/\n\n/);
     
     return (
         <div className={`space-y-4 font-serif text-slate-700 leading-relaxed ${className}`}>
             {splitOriginal.map((para, idx) => {
                 if (!para.trim()) return null;
-                
-                // Find matching risk score (fuzzy match or index match)
                 const riskData = paragraphs && paragraphs[idx] ? paragraphs[idx] : null;
                 const score = riskData ? riskData.riskScore : 0;
                 
-                // Determine Heatmap Color
                 let bgClass = "bg-transparent";
                 let borderClass = "border-transparent";
                 
@@ -107,12 +101,41 @@ const HeatmapDisplay: React.FC<{
                     borderClass = "border-green-100";
                 }
 
+                // Determine Match Type Label
+                let riskLabel = "Safe";
+                let matchTypeColor = "text-green-500";
+                
+                if (riskData?.matchType === 'PLAGIARISM') {
+                    riskLabel = "PLAGIARISM MATCH";
+                    matchTypeColor = "text-red-600";
+                } else if (riskData?.matchType === 'AI') {
+                    riskLabel = "AI PATTERN DETECTED";
+                    matchTypeColor = "text-amber-600";
+                } else if (score > 50) {
+                    riskLabel = "SUSPICIOUS";
+                    matchTypeColor = "text-amber-600";
+                }
+
                 return (
                     <div key={idx} className={`p-2 rounded-lg border transition-colors ${bgClass} ${borderClass} group relative`}>
                         <p>{para}</p>
-                        {score > 50 && (
-                            <div className="absolute top-0 right-0 -mt-2 -mr-2 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
-                                AI Risk: {score}%
+                        {score > 40 && (
+                            <div className="absolute top-0 right-0 -mt-2 -mr-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-slate-200 shadow-xl rounded-lg p-3 z-20 w-64 pointer-events-none md:pointer-events-auto">
+                                <div className="flex items-center justify-between mb-1">
+                                     <span className={`text-[10px] font-extrabold uppercase ${matchTypeColor}`}>{riskLabel}</span>
+                                     <span className="text-xs font-bold text-slate-700">{score}% Risk</span>
+                                </div>
+                                {riskData?.evidence && (
+                                    <p className="text-xs text-slate-500 italic mb-1">
+                                        "{riskData.evidence}"
+                                    </p>
+                                )}
+                                {riskData?.matchType === 'PLAGIARISM' && (
+                                    <div className="flex items-center gap-1 text-[10px] text-blue-500 mt-1">
+                                        <ExternalLink className="w-3 h-3" />
+                                        Found on Google Search
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -124,16 +147,21 @@ const HeatmapDisplay: React.FC<{
 
 const TextDisplay: React.FC<{ text: string; className?: string }> = ({ text, className }) => {
     return (
-        <div className={`relative ${className}`}>
-            <p className="whitespace-pre-wrap leading-relaxed text-sm md:text-base font-serif">
-                {text}
-            </p>
+        <div className={`whitespace-pre-wrap leading-relaxed text-sm md:text-base font-serif text-slate-700 ${className}`}>
+            {text}
         </div>
     );
 };
 
 const DiffDisplay: React.FC<{ oldText: string, newText: string }> = ({ oldText, newText }) => {
-    const diff = Diff.diffWords(oldText, newText);
+    // Robust access to diffWords
+    const diffFn = Diff.diffWords || (Diff as any).default?.diffWords || (window as any).Diff?.diffWords;
+    
+    if (!diffFn) {
+        return <div className="text-red-500">Diff library error. Please refresh.</div>;
+    }
+
+    const diff = diffFn(oldText, newText);
     return (
         <div className="whitespace-pre-wrap leading-relaxed text-sm md:text-base font-serif text-slate-700">
             {diff.map((part: any, index: number) => {
@@ -150,6 +178,91 @@ const DiffDisplay: React.FC<{ oldText: string, newText: string }> = ({ oldText, 
     );
 };
 
+const ForensicsPanel: React.FC<{ data: ForensicData, sources: any[] }> = ({ data, sources }) => {
+    if (!data) return null;
+
+    const stats = [
+        { label: "Sentence Variance", value: data.sentenceVariance, ideal: "> 8.0", status: data.sentenceVariance > 8 ? "Human" : "Robotic" },
+        { label: "Complexity Ratio", value: data.uniqueWordRatio, ideal: "> 0.4", status: data.uniqueWordRatio > 0.4 ? "Rich" : "Repetitive" },
+        { label: "Readability", value: data.readabilityScore, ideal: "varies", status: "Index" },
+    ];
+
+    return (
+        <div className="p-6 space-y-8 animate-in fade-in duration-500">
+            <div>
+                <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5 text-indigo-600" />
+                    Stylometric DNA
+                </h4>
+                <div className="grid grid-cols-3 gap-4">
+                    {stats.map((stat, i) => (
+                        <div key={i} className="bg-slate-50 p-3 rounded-lg border border-slate-200">
+                            <p className="text-[10px] text-slate-500 font-bold uppercase">{stat.label}</p>
+                            <p className="text-xl font-bold text-slate-800 mt-1">{stat.value}</p>
+                            <div className="flex justify-between items-center mt-2">
+                                <span className="text-[10px] text-slate-400">Goal: {stat.ideal}</span>
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                    stat.status === 'Human' || stat.status === 'Rich' ? 'bg-green-100 text-green-700' : 
+                                    stat.status === 'Robotic' || stat.status === 'Repetitive' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                                }`}>{stat.status}</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <p className="text-xs text-slate-400 mt-2 text-center">
+                    * Authenticity metrics calculated via Client-Side Forensic Algorithms.
+                </p>
+            </div>
+
+            {data.aiTriggerWordsFound && data.aiTriggerWordsFound.length > 0 && (
+                <div>
+                     <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-sm">
+                        <AlertTriangle className="w-4 h-4 text-amber-500" />
+                        AI Fingerprints Detected
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                        {data.aiTriggerWordsFound.map((word, i) => (
+                            <span key={i} className="px-2 py-1 bg-amber-50 text-amber-700 text-xs font-semibold rounded border border-amber-100 line-through decoration-amber-500/50">
+                                {word}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            <div>
+                 <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                    <Search className="w-5 h-5 text-indigo-600" />
+                    Detected Sources
+                </h4>
+                {sources && sources.length > 0 ? (
+                    <div className="space-y-3">
+                        {sources.map((source, i) => (
+                            <a href={source.url} target="_blank" rel="noopener noreferrer" key={i} className="block p-3 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 rounded-lg transition-all group">
+                                <div className="flex items-start justify-between">
+                                    <div className="flex-1 min-w-0">
+                                        <h5 className="text-sm font-bold text-indigo-700 truncate">{source.title}</h5>
+                                        <p className="text-xs text-slate-500 mt-1 truncate">{source.url}</p>
+                                    </div>
+                                    <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-indigo-500 flex-shrink-0 ml-2" />
+                                </div>
+                            </a>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="bg-green-50 border border-green-100 rounded-lg p-4 flex items-center gap-3">
+                        <CheckCircle2 className="w-6 h-6 text-green-500" />
+                        <div>
+                            <p className="text-sm font-bold text-green-800">No Plagiarism Found</p>
+                            <p className="text-xs text-green-600">Google Search found no exact matches.</p>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const ModeCard: React.FC<{ 
     mode: HumanizeMode, 
     selected: boolean, 
@@ -161,7 +274,7 @@ const ModeCard: React.FC<{
     <button
         onClick={onClick}
         className={`relative flex flex-col items-start p-3 rounded-xl border text-left transition-all duration-300 w-full hover:shadow-md h-full
-        ${selected ? 'border-indigo-600 bg-indigo-50/50 shadow-indigo-100 ring-1 ring-indigo-500' : 'border-slate-200 bg-white hover:border-indigo-300'}
+        ${selected ? 'border-indigo-600 bg-indigo-50/50 shadow-indigo-100 ring-1 ring-indigo-500' : 'border-slate-200 bg-white hover:border-indigo-300 hover:bg-slate-50'}
         `}
     >
         <div className={`p-2 rounded-lg mb-2 ${selected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
@@ -188,7 +301,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
 }) => {
   const isFixing = status === AppStatus.FIXING;
   const [copied, setCopied] = useState(false);
-  const [viewMode, setViewMode] = useState<'clean' | 'diff'>('clean');
+  const [viewMode, setViewMode] = useState<'clean' | 'diff' | 'forensics'>('clean');
   
   // Customization Options
   const [mode, setMode] = useState<HumanizeMode>('Standard');
@@ -243,16 +356,19 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
       toast.success("Thanks! Your feedback improves our AI.");
   };
 
-  const copyRef = (ref: string) => {
-    navigator.clipboard.writeText(ref);
-    toast.success("Citation copied");
-  };
-
   const currentScore = fixResult ? fixResult.newPlagiarismScore : analysis.plagiarismScore;
   const scoreLabel = fixResult ? "Current Risk" : "Detected Risk";
+  
+  // Clean text for PDF export (remove simple markdown)
+  const cleanTextForPdf = (text: string) => {
+      return text
+        .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold
+        .replace(/##\s+/g, '') // Remove H2
+        .replace(/#\s+/g, ''); // Remove H1
+  };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500">
+    <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
       
       {/* Top Stats Bar */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -295,373 +411,289 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
       {/* Main Content Area */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:h-[800px] h-auto">
         
-        {/* Left: Original with Heatmap */}
-        <div className="flex flex-col h-full min-h-[500px] lg:min-h-0 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center flex-shrink-0">
-            <h3 className="font-bold text-slate-700 flex items-center gap-2">
-                Original Text
-                <span className="flex h-2 w-2 relative">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                </span>
-            </h3>
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-100 px-2 py-1 rounded">Risk Heatmap</span>
-          </div>
-          <div className="flex-1 p-6 overflow-y-auto bg-slate-50/50 relative">
-             <div className="absolute top-0 right-4 z-10">
-                 <div className="bg-white/80 backdrop-blur p-2 rounded-b-lg shadow-sm text-[10px] text-slate-500 border border-t-0 border-slate-200 flex gap-2">
-                     <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-200 border border-red-300"></span> High Risk</span>
-                     <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-200 border border-green-300"></span> Safe</span>
-                 </div>
+        {/* Left: Original with Heatmap & Forensics */}
+        <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="bg-slate-50 border-b border-slate-200 p-4 flex justify-between items-center">
+             <div className="flex gap-2">
+                 <button 
+                    onClick={() => setViewMode('clean')}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${viewMode !== 'forensics' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                 >
+                     Plagiarism Heatmap
+                 </button>
+                 <button 
+                    onClick={() => setViewMode('forensics')}
+                    className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${viewMode === 'forensics' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                 >
+                     <Microscope className="w-3 h-3" />
+                     Forensic DNA
+                 </button>
              </div>
-             {analysis.paragraphBreakdown ? (
-                 <HeatmapDisplay text={originalText} paragraphs={analysis.paragraphBreakdown} />
+             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Original Source</span>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-slate-200">
+             {viewMode === 'forensics' ? (
+                 <ForensicsPanel data={analysis.forensics} sources={analysis.sourcesFound} />
              ) : (
-                 <TextDisplay text={originalText} className="text-slate-600" />
+                 <HeatmapDisplay 
+                    text={originalText} 
+                    paragraphs={analysis.paragraphBreakdown} 
+                 />
              )}
           </div>
         </div>
 
-        {/* Right: Fixed / Action */}
-        <div className={`flex flex-col h-full min-h-[500px] lg:min-h-0 bg-white rounded-xl shadow-sm border overflow-hidden relative transition-all duration-500 ${fixResult ? 'border-indigo-200 shadow-indigo-100' : 'border-slate-200'}`}>
-          <div className="px-6 py-4 border-b border-slate-100 bg-white flex justify-between items-center z-10 flex-shrink-0">
-            <h3 className="font-bold text-indigo-700 flex items-center gap-2">
-                Humanized Version
-                {fixResult && <CheckCircle2 className="h-4 w-4 text-green-500" />}
-            </h3>
-            {fixResult && (
-               <div className="flex items-center gap-2">
-                    <div className="flex bg-slate-100 rounded-lg p-0.5 mr-2">
+        {/* Right: Actions OR Result */}
+        <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden relative">
+           
+           {!fixResult ? (
+             /* --- CONFIGURATION MODE --- */
+             <div className="flex flex-col h-full">
+                <div className="bg-slate-50 border-b border-slate-200 p-4">
+                    <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                        <Wand2 className="w-4 h-4 text-indigo-500" />
+                        Configure Humanizer Engine
+                    </h3>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-6 space-y-8">
+                    {/* Mode Selection */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <ModeCard 
+                            mode="Standard" 
+                            selected={mode === 'Standard'} 
+                            onClick={() => setMode('Standard')}
+                            icon={<Zap className="w-5 h-5" />}
+                            label="Standard"
+                            desc="Balanced rewrite. Safe for general use."
+                        />
+                        <ModeCard 
+                            mode="Ghost" 
+                            selected={mode === 'Ghost'} 
+                            onClick={() => setMode('Ghost')}
+                            icon={<Ghost className="w-5 h-5" />}
+                            label="Ghost Mode"
+                            desc="Anti-AI. Bypasses Turnitin & GPTZero."
+                        />
+                        <ModeCard 
+                            mode="Academic" 
+                            selected={mode === 'Academic'} 
+                            onClick={() => setMode('Academic')}
+                            icon={<GraduationCap className="w-5 h-5" />}
+                            label="Scholar"
+                            desc="PhD-level vocabulary. Formal tone."
+                        />
+                        <ModeCard 
+                            mode="Creative" 
+                            selected={mode === 'Creative'} 
+                            onClick={() => setMode('Creative')}
+                            icon={<PenTool className="w-5 h-5" />}
+                            label="Creative"
+                            desc="Engaging, story-like flow."
+                        />
+                    </div>
+
+                    {/* Style Cloning */}
+                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
+                        <div className="flex items-center justify-between cursor-pointer" onClick={() => setShowStyleInput(!showStyleInput)}>
+                            <div className="flex items-center gap-2">
+                                <Fingerprint className="w-5 h-5 text-indigo-600" />
+                                <div>
+                                    <h4 className="font-bold text-sm text-slate-800">Style Cloning (Beta)</h4>
+                                    <p className="text-xs text-slate-500">Mimic your own writing style</p>
+                                </div>
+                            </div>
+                            <div className={`w-10 h-5 rounded-full p-1 transition-colors ${showStyleInput ? 'bg-indigo-600' : 'bg-slate-300'}`}>
+                                <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${showStyleInput ? 'translate-x-5' : ''}`}></div>
+                            </div>
+                        </div>
+                        {showStyleInput && (
+                            <div className="mt-4 animate-in fade-in slide-in-from-top-2">
+                                <p className="text-xs text-slate-500 mb-2">Paste a sample of your previous writing (200+ words). The AI will analyze your sentence structure.</p>
+                                <textarea 
+                                    className="w-full h-32 p-3 text-xs bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
+                                    placeholder="Paste your sample text here..."
+                                    value={styleSample}
+                                    onChange={(e) => setStyleSample(e.target.value)}
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Advanced Settings */}
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                             <label className="text-sm font-semibold text-slate-700">English Dialect</label>
+                             <div className="flex bg-slate-100 p-1 rounded-lg">
+                                 {(['US', 'UK', 'CA', 'AU'] as const).map((d) => (
+                                     <button
+                                        key={d}
+                                        onClick={() => setDialect(d)}
+                                        className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${dialect === d ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}
+                                     >
+                                         {d}
+                                     </button>
+                                 ))}
+                             </div>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <Quote className="w-4 h-4 text-slate-400" />
+                                Auto-Citations
+                            </label>
+                             <div className="flex items-center gap-2">
+                                {includeCitations && (
+                                    <select 
+                                        className="text-xs bg-white border border-slate-200 rounded py-1 px-2 outline-none focus:border-indigo-500"
+                                        value={citationStyle}
+                                        onChange={(e) => setCitationStyle(e.target.value as CitationStyle)}
+                                    >
+                                        <option value="APA">APA 7</option>
+                                        <option value="MLA">MLA 9</option>
+                                        <option value="Harvard">Harvard</option>
+                                        <option value="Chicago">Chicago</option>
+                                        <option value="IEEE">IEEE</option>
+                                    </select>
+                                )}
+                                <div 
+                                    className={`w-10 h-5 rounded-full p-1 cursor-pointer transition-colors ${includeCitations ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                                    onClick={() => setIncludeCitations(!includeCitations)}
+                                >
+                                    <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${includeCitations ? 'translate-x-5' : ''}`}></div>
+                                </div>
+                             </div>
+                        </div>
+
+                        <div>
+                            <div className="flex justify-between text-xs font-bold text-slate-500 mb-2">
+                                <span>Humanization Strength</span>
+                                <span>{strength}%</span>
+                            </div>
+                            <input 
+                                type="range" 
+                                min="1" 
+                                max="100" 
+                                value={strength} 
+                                onChange={(e) => setStrength(parseInt(e.target.value))}
+                                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-4 border-t border-slate-100 bg-slate-50">
+                    <button
+                        onClick={handleFixClick}
+                        disabled={isFixing}
+                        className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 hover:shadow-indigo-300 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
+                    >
+                        {isFixing ? (
+                            <>
+                                <RefreshCw className="w-5 h-5 animate-spin" />
+                                Rewriting Document...
+                            </>
+                        ) : (
+                            <>
+                                <Sparkles className="w-5 h-5" />
+                                Humanize Text (Fix Plagiarism)
+                            </>
+                        )}
+                    </button>
+                </div>
+             </div>
+           ) : (
+             /* --- RESULT MODE --- */
+             <div className="flex flex-col h-full">
+                 <div className="bg-slate-50 border-b border-slate-200 p-4 flex justify-between items-center">
+                    <div className="flex gap-2">
                         <button 
                             onClick={() => setViewMode('clean')}
-                            className={`p-1.5 rounded-md transition-all flex items-center gap-1 ${viewMode === 'clean' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-                            title="Clean View"
+                            className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${viewMode === 'clean' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
-                            <Eye className="w-3.5 h-3.5" />
+                            Final Result
                         </button>
                         <button 
                             onClick={() => setViewMode('diff')}
-                            className={`p-1.5 rounded-md transition-all flex items-center gap-1 ${viewMode === 'diff' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400 hover:text-slate-600'}`}
-                            title="Show Changes (Diff)"
+                            className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${viewMode === 'diff' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                         >
-                            <Split className="w-3.5 h-3.5" />
+                            <Split className="w-3 h-3" />
+                            Track Changes
                         </button>
                     </div>
-
-                   <button 
-                    onClick={() => downloadDocx(fixResult.rewrittenText, "PlagiaFix_Rewritten", fixResult.references)}
-                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                    title="Export as DOCX"
-                   >
-                       <FileText className="h-4 w-4" />
-                   </button>
-                   <button 
-                    onClick={handleCopy}
-                    className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-                    title="Copy text"
-                   >
-                       {copied ? <Check className="h-4 w-4 text-green-500" /> : <Copy className="h-4 w-4" />}
-                   </button>
-               </div>
-            )}
-          </div>
-
-          <div className="flex-1 p-0 overflow-y-auto relative bg-slate-50/30">
-            {!fixResult ? (
-              <div className="absolute inset-0 flex flex-col items-center justify-start py-8 px-6 text-center overflow-y-auto scrollbar-thin">
-                <div className="w-full max-w-md mx-auto space-y-6 pb-8">
-                  <div className="text-center">
-                    <h4 className="text-xl font-bold text-slate-900 flex items-center justify-center gap-2">
-                        <Wand2 className="w-5 h-5 text-indigo-600" />
-                        PlagiaFix Ultimate Engine
-                    </h4>
-                    <p className="text-slate-500 text-sm mt-1">Configure your humanization settings.</p>
-                  </div>
-                  
-                  {/* MODE SELECTION */}
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                      <label className="block text-xs font-bold text-slate-500 uppercase mb-3 text-left">Rewrite Strategy</label>
-                      <div className="grid grid-cols-2 gap-3">
-                          <ModeCard 
-                             mode="Standard" 
-                             label="Standard" 
-                             desc="Balanced"
-                             icon={<Zap className="w-5 h-5" />} 
-                             selected={mode === 'Standard'}
-                             onClick={() => setMode('Standard')}
-                          />
-                          <ModeCard 
-                             mode="Ghost" 
-                             label="Ghost Mode" 
-                             desc="Deep Stealth"
-                             icon={<Ghost className="w-5 h-5" />} 
-                             selected={mode === 'Ghost'}
-                             onClick={() => setMode('Ghost')}
-                          />
-                          <ModeCard 
-                             mode="Academic" 
-                             label="Scholar" 
-                             desc="Formal / PhD"
-                             icon={<GraduationCap className="w-5 h-5" />} 
-                             selected={mode === 'Academic'}
-                             onClick={() => setMode('Academic')}
-                          />
-                          <ModeCard 
-                             mode="Creative" 
-                             label="Storyteller" 
-                             desc="Narrative"
-                             icon={<PenTool className="w-5 h-5" />} 
-                             selected={mode === 'Creative'}
-                             onClick={() => setMode('Creative')}
-                          />
-                      </div>
-                  </div>
-
-                  {/* STYLE CLONING */}
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-left">
-                     <div className="flex justify-between items-center mb-2">
-                        <label className="flex items-center gap-2 text-xs font-bold text-slate-600 uppercase">
-                            <Fingerprint className="w-4 h-4 text-purple-500" />
-                            Persona Cloning
-                        </label>
-                        <button 
-                            onClick={() => setShowStyleInput(!showStyleInput)}
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded border transition-colors ${showStyleInput ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-100 text-slate-500 border-slate-200'}`}
-                        >
-                            {showStyleInput ? 'ENABLED' : 'DISABLED'}
+                    <div className="flex items-center gap-1">
+                        <button onClick={handleCopy} className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-indigo-600" title="Copy Text">
+                            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                         </button>
-                     </div>
+                        <button onClick={onReset} className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-red-500" title="Reset">
+                            <RefreshCw className="w-4 h-4" />
+                        </button>
+                    </div>
+                 </div>
+
+                 <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-slate-200">
+                     {viewMode === 'diff' ? (
+                         <DiffDisplay oldText={originalText} newText={fixResult.rewrittenText} />
+                     ) : (
+                         <TextDisplay text={fixResult.rewrittenText} />
+                     )}
                      
-                     {showStyleInput && (
-                         <div className="mt-2 animate-in fade-in slide-in-from-top-1">
-                             <p className="text-xs text-slate-500 mb-2">Paste a sample of your own writing (200+ words). We will analyze and mimic your exact tone.</p>
-                             <textarea 
-                                className="w-full h-24 p-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none resize-none"
-                                placeholder="Paste your previous essay or writing sample here..."
-                                value={styleSample}
-                                onChange={(e) => setStyleSample(e.target.value)}
-                             />
+                     {/* Citation Footer */}
+                     {fixResult.references && fixResult.references.length > 0 && (
+                         <div className="mt-8 pt-8 border-t border-slate-200">
+                             <h4 className="font-bold text-slate-800 mb-4">References</h4>
+                             <ul className="space-y-2 text-sm text-slate-600 pl-4 list-decimal">
+                                 {fixResult.references.map((ref, i) => (
+                                     <li key={i}>{ref}</li>
+                                 ))}
+                             </ul>
                          </div>
                      )}
-                  </div>
+                 </div>
 
-                  {/* CITATION MANAGER */}
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-left">
-                     <label className="flex items-center gap-2 text-xs font-bold text-slate-600 uppercase mb-3">
-                        <Quote className="w-4 h-4 text-indigo-500" />
-                        Citation Manager
-                     </label>
-                     <div className="flex gap-3">
-                         <button 
-                            onClick={() => setIncludeCitations(!includeCitations)}
-                            className={`flex-1 text-xs p-2.5 border rounded-lg flex items-center justify-center gap-2 font-semibold transition-colors ${includeCitations ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-slate-200 text-slate-600'}`}
-                         >
-                            {includeCitations ? <Check className="w-3 h-3" /> : <BookOpen className="w-3 h-3" />}
-                            {includeCitations ? 'Auto-Cite ON' : 'Auto-Cite OFF'}
-                         </button>
-                         
-                         {includeCitations && (
-                             <select 
-                                value={citationStyle}
-                                onChange={(e) => setCitationStyle(e.target.value as CitationStyle)}
-                                className="flex-1 text-xs p-2.5 bg-white border border-slate-200 rounded-lg focus:border-indigo-500 outline-none shadow-sm font-medium animate-in fade-in slide-in-from-left-2"
-                            >
-                                <option value="APA">APA 7</option>
-                                <option value="MLA">MLA 9</option>
-                                <option value="Chicago">Chicago</option>
-                                <option value="Harvard">Harvard</option>
-                                <option value="IEEE">IEEE</option>
-                            </select>
-                         )}
-                     </div>
-                  </div>
+                 {/* Feedback & Actions */}
+                 <div className="p-4 bg-slate-50 border-t border-slate-200 space-y-4">
+                    {/* Rating */}
+                    {!isFeedbackSubmitted && (
+                        <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-slate-200">
+                            <span className="text-xs font-bold text-slate-500">Rate Quality:</span>
+                            <div className="flex gap-1">
+                                {[1, 2, 3, 4, 5].map((star) => (
+                                    <button
+                                        key={star}
+                                        onMouseEnter={() => setHoverRating(star)}
+                                        onMouseLeave={() => setHoverRating(0)}
+                                        onClick={() => { setRating(star); if(star > 0) submitFeedback(); }}
+                                        className="transition-transform hover:scale-110"
+                                    >
+                                        <Star className={`w-5 h-5 ${star <= (hoverRating || rating) ? 'fill-yellow-400 text-yellow-400' : 'text-slate-300'}`} />
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
-                  {/* STRENGTH SLIDER */}
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm text-left">
-                       <div className="flex justify-between items-center mb-4">
-                            <label className="flex items-center gap-2 text-xs font-bold text-slate-600 uppercase">
-                                <Flame className={`w-4 h-4 ${strength > 75 ? 'text-red-500' : strength > 40 ? 'text-orange-500' : 'text-blue-500'}`} />
-                                Intensity
-                            </label>
-                            <span className="text-xs font-mono font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded">{strength}%</span>
-                       </div>
-                       <input 
-                          type="range" 
-                          min="1" 
-                          max="100" 
-                          value={strength}
-                          onChange={(e) => setStrength(parseInt(e.target.value))}
-                          className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                       />
-                  </div>
-                  
-                  {/* DIALECT */}
-                  <div className="flex gap-3">
-                     <div className="flex-1">
-                        <select 
-                            value={dialect}
-                            onChange={(e) => setDialect(e.target.value as any)}
-                            className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-lg focus:border-indigo-500 outline-none shadow-sm font-medium"
+                    <div className="grid grid-cols-2 gap-3">
+                        <button 
+                            onClick={() => downloadDocx(fixResult.rewrittenText, 'PlagiaFix_Rewritten', fixResult.references)}
+                            className="flex items-center justify-center gap-2 py-2.5 bg-white border border-slate-300 hover:border-indigo-400 hover:text-indigo-600 text-slate-700 font-bold rounded-lg transition-colors shadow-sm text-sm"
                         >
-                            <option value="US">🇺🇸 US English</option>
-                            <option value="UK">🇬🇧 UK English</option>
-                            <option value="CA">🇨u00a0 Canadian</option>
-                            <option value="AU">🇦🇺 Australian</option>
-                        </select>
-                     </div>
-                  </div>
-
-                  <button 
-                    onClick={handleFixClick}
-                    disabled={isFixing}
-                    className="w-full py-4 px-6 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 bg-[length:200%_auto] hover:bg-right text-white rounded-xl font-bold shadow-lg shadow-indigo-200 hover:shadow-xl transition-all flex items-center justify-center gap-2 group transform active:scale-[0.98]"
-                    style={{ transitionDuration: '0.5s' }}
-                  >
-                    {isFixing ? (
-                      <>
-                        <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        {includeCitations ? 'Researching & Rewriting...' : 'Magic in progress...'}
-                      </>
-                    ) : (
-                      <>
-                        <Sparkles className="w-5 h-5" />
-                        Humanize Text
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="p-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                {viewMode === 'clean' ? (
-                     <TextDisplay text={fixResult.rewrittenText} className="text-slate-800 font-medium" />
-                ) : (
-                     <DiffDisplay oldText={originalText} newText={fixResult.rewrittenText} />
-                )}
-                
-                {fixResult.references && fixResult.references.length > 0 && (
-                     <div className="mt-8 mb-6 bg-slate-50 border border-slate-200 rounded-lg overflow-hidden">
-                        <div className="px-4 py-3 border-b border-slate-200 bg-slate-100 flex items-center justify-between">
-                             <div className="flex items-center gap-2">
-                                <BookOpen className="w-4 h-4 text-indigo-600" />
-                                <h4 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
-                                    References 
-                                    {citationStyle && <span className="ml-2 bg-indigo-200 text-indigo-800 px-1.5 py-0.5 rounded text-[10px]">{citationStyle}</span>}
-                                </h4>
-                             </div>
-                             <button onClick={() => {
-                                 navigator.clipboard.writeText(fixResult.references!.join('\n\n'));
-                                 toast.success("All references copied");
-                             }} className="text-xs text-indigo-600 hover:text-indigo-800 font-medium">
-                                 Copy All
-                             </button>
-                        </div>
-                        <div className="p-4 space-y-3">
-                            {fixResult.references.map((ref, i) => (
-                                <div key={i} className="group relative pl-4 border-l-2 border-slate-300 hover:border-indigo-500 transition-colors">
-                                    <div className="flex justify-between items-start gap-2">
-                                        <p className="text-sm text-slate-700 leading-relaxed font-serif">
-                                            {/* Render italics/formatting crudely if present, or just text */}
-                                            <span dangerouslySetInnerHTML={{ __html: ref.replace(/\*(.*?)\*/g, '<i>$1</i>') }}></span>
-                                        </p>
-                                        <button 
-                                            onClick={() => copyRef(ref)}
-                                            className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-indigo-600 transition-opacity"
-                                        >
-                                            <Copy className="w-3 h-3" />
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                     </div>
-                )}
-
-                <div className="mt-8 pt-6 border-t border-slate-100 bg-indigo-50/50 -mx-6 p-6">
-                    <h4 className="text-xs font-bold text-indigo-900 uppercase tracking-wider mb-3">Transformation Report</h4>
-                    <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {fixResult.improvementsMade && fixResult.improvementsMade.length > 0 ? (
-                            fixResult.improvementsMade.map((imp, i) => (
-                                <li key={i} className="flex items-start text-xs text-indigo-800 font-medium">
-                                    <CheckCircle2 className="w-3.5 h-3.5 mr-2 text-indigo-500 mt-0.5 flex-shrink-0" />
-                                    {imp}
-                                </li>
-                            ))
-                        ) : (
-                            <li className="flex items-start text-xs text-indigo-800 font-medium">
-                                <CheckCircle2 className="w-3.5 h-3.5 mr-2 text-indigo-500 mt-0.5 flex-shrink-0" />
-                                Optimized for readability and uniqueness
-                            </li>
-                        )}
-                    </ul>
-                </div>
-
-                <div className="mt-0 border-t border-indigo-100 bg-white -mx-6 -mb-6 p-6">
-                    {!isFeedbackSubmitted ? (
-                        <div>
-                            <div className="flex items-center justify-between mb-3">
-                                <h4 className="text-sm font-bold text-slate-800">Rate this rewrite</h4>
-                                <div className="flex gap-1">
-                                    {[1, 2, 3, 4, 5].map((star) => (
-                                        <button
-                                            key={star}
-                                            onMouseEnter={() => setHoverRating(star)}
-                                            onMouseLeave={() => setHoverRating(0)}
-                                            onClick={() => setRating(star)}
-                                            className="p-1 transition-transform hover:scale-110 focus:outline-none"
-                                        >
-                                            <Star 
-                                                className={`w-5 h-5 ${star <= (hoverRating || rating) ? 'fill-amber-400 text-amber-400' : 'text-slate-300 fill-slate-100'}`} 
-                                            />
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="relative">
-                                <textarea 
-                                    className="w-full text-xs p-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-none"
-                                    rows={2}
-                                    placeholder="Help us improve. What did you like or dislike? (Optional)"
-                                    value={feedbackText}
-                                    onChange={(e) => setFeedbackText(e.target.value)}
-                                />
-                                <button 
-                                    onClick={submitFeedback}
-                                    className="absolute bottom-2 right-2 p-1.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors shadow-sm disabled:opacity-50"
-                                    disabled={rating === 0}
-                                    title="Submit Feedback"
-                                >
-                                    <Send className="w-3 h-3" />
-                                </button>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center py-2 text-center animate-in fade-in zoom-in duration-300">
-                             <div className="w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-2">
-                                <ThumbsUp className="w-4 h-4" />
-                             </div>
-                             <p className="text-sm font-bold text-slate-800">Thank you!</p>
-                        </div>
-                    )}
-                </div>
-              </div>
-            )}
-          </div>
+                            <FileText className="w-4 h-4" />
+                            DOCX
+                        </button>
+                        <button 
+                            onClick={() => downloadPdf(cleanTextForPdf(fixResult.rewrittenText), 100 - fixResult.newPlagiarismScore, analysis.plagiarismScore)}
+                            className="flex items-center justify-center gap-2 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors shadow-md text-sm"
+                        >
+                            <CheckCircle2 className="w-4 h-4" />
+                            Verify PDF
+                        </button>
+                    </div>
+                 </div>
+             </div>
+           )}
         </div>
-      </div>
-
-      <div className="flex justify-center pt-8 pb-12">
-        <button 
-            onClick={onReset}
-            disabled={isFixing}
-            className="group flex items-center gap-2 px-6 py-3 rounded-full bg-white border border-slate-200 text-slate-600 font-semibold hover:border-indigo-300 hover:text-indigo-600 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-            Start New Scan 
-            <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-        </button>
       </div>
     </div>
   );
