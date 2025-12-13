@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, FixResult, FixOptions, HumanizeMode, ParagraphAnalysis, CitationStyle, ForensicData, SourceMatch } from "../types";
 
@@ -119,8 +120,13 @@ const calculateForensics = (text: string): ForensicData => {
     const uniqueWords = new Set(words);
     const uniqueWordRatio = uniqueWords.size / (words.length || 1);
 
-    // 3. AI Trigger Word Hunting
-    const aiTriggerWordsFound = BANNED_WORDS.filter(word => text.toLowerCase().includes(word));
+    // 3. AI Trigger Word Hunting (Improved with Word Boundaries)
+    const lowerText = text.toLowerCase();
+    const aiTriggerWordsFound = BANNED_WORDS.filter(word => {
+        // Create regex for whole word match only
+        const regex = new RegExp(`\\b${word}\\b`, 'i');
+        return regex.test(lowerText);
+    });
 
     // 4. Readability (Automated Readability Index - approximated)
     const characters = text.replace(/\s/g, '').length;
@@ -144,8 +150,19 @@ export const analyzeDocument = async (text: string): Promise<AnalysisResult> => 
 
   const ANALYSIS_CHUNK_SIZE = 12000; 
   const chunks = chunkText(text, ANALYSIS_CHUNK_SIZE);
-  // We only deep-scan the first 2 chunks to save bandwidth/time, usually sufficient for detection
-  const chunksToAnalyze = chunks.slice(0, 2); 
+  
+  // SMART SAMPLING: If document is huge (hundreds of pages), we can't scan ALL of it for detection without rate limits.
+  // We take the Start, Middle, and End to get a representative "Biopsy" of the document.
+  let chunksToAnalyze = chunks;
+  if (chunks.length > 3) {
+      chunksToAnalyze = [
+          chunks[0], // Intro
+          chunks[Math.floor(chunks.length / 2)], // Body
+          chunks[chunks.length - 1] // Conclusion
+      ];
+  } else {
+      chunksToAnalyze = chunks.slice(0, 2); // Default to first 2 for smaller docs
+  }
 
   const systemInstruction = `
     You are a rigorous Forensic Text Analyst and Plagiarism Investigator.
@@ -379,7 +396,7 @@ const analyzeSingleChunk = async (text: string, systemInstruction: string, model
     } as AnalysisResult;
 }
 
-export const fixPlagiarism = async (text: string, currentIssues: string[], options: FixOptions): Promise<FixResult> => {
+export const fixPlagiarism = async (text: string, currentIssues: string[], options: FixOptions, onProgress?: (percent: number) => void): Promise<FixResult> => {
   if (!process.env.API_KEY) throw new Error("API Key is missing");
 
   const { includeCitations, citationStyle, mode, strength, dialect, styleSample } = options;
@@ -482,6 +499,7 @@ export const fixPlagiarism = async (text: string, currentIssues: string[], optio
     2. **Dialect**: ${dialectPrompt}
     3. **Intensity**: ${strengthInstruction}
     4. **Human Touch**: Add slight nuance, strong opinions, and "messy" human transitions.
+    5. **Formatting**: Return PLAIN TEXT only. Do not use Markdown (no **bold**, no # headings). Use standard spacing.
 
     ${styleInjection}
     ${citationInstruction}
@@ -579,6 +597,13 @@ export const fixPlagiarism = async (text: string, currentIssues: string[], optio
           return { rewrittenText: "[Error: Could not rewrite this section due to high server load]", newPlagiarismScore: 50 };
       })));
       chunkResults.push(...results);
+      
+      // REPORT PROGRESS
+      if (onProgress) {
+          const processedCount = i + batch.length;
+          const progressPercent = Math.min(99, Math.round((processedCount / chunks.length) * 100));
+          onProgress(progressPercent);
+      }
   }
 
   const rewrittenChunks: string[] = [];

@@ -6,7 +6,14 @@ export const downloadDocx = async (text: string, filename: string = 'PlagiaFix_R
     try {
         const docxModule = await import('docx');
         const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = docxModule;
-        const { saveAs } = await import('file-saver');
+        
+        const fileSaverModule = await import('file-saver');
+        // Robustly handle different export formats (ESM/CJS interoperability)
+        const saveAs = (fileSaverModule as any).default?.saveAs || (fileSaverModule as any).saveAs || (fileSaverModule as any).default;
+
+        if (typeof saveAs !== 'function') {
+             throw new Error("Failed to load file saving module.");
+        }
 
         const lines = text.split('\n');
         const docChildren: any[] = [];

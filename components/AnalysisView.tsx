@@ -14,6 +14,7 @@ interface AnalysisViewProps {
   analysis: AnalysisResult;
   fixResult: FixResult | null;
   status: AppStatus;
+  fixProgress?: number; // New Prop for Progress Bar
   onFix: (options: FixOptions) => void;
   onReset: () => void;
   scoreHistory: number[];
@@ -145,10 +146,23 @@ const HeatmapDisplay: React.FC<{
     );
 };
 
+// Helper to strip Markdown (Robust)
+const cleanMarkdown = (text: string) => {
+    if (!text) return "";
+    return text
+        .replace(/\*\*(.*?)\*\*/g, '$1') // Bold
+        .replace(/__(.*?)__/g, '$1')     // Bold
+        .replace(/\*(?![*\s])(.*?)\*/g, '$1') // Italic
+        .replace(/_([^_]+)_/g, '$1')     // Italic
+        .replace(/^#+\s/gm, '')          // Headings
+        .replace(/`/g, '');              // Code ticks
+};
+
 const TextDisplay: React.FC<{ text: string; className?: string }> = ({ text, className }) => {
+    const cleaned = cleanMarkdown(text);
     return (
         <div className={`whitespace-pre-wrap leading-relaxed text-sm md:text-base font-serif text-slate-700 ${className}`}>
-            {text}
+            {cleaned}
         </div>
     );
 };
@@ -295,6 +309,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
   analysis, 
   fixResult, 
   status, 
+  fixProgress = 0,
   onFix,
   onReset,
   scoreHistory
@@ -584,6 +599,22 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
                 </div>
 
                 <div className="p-4 border-t border-slate-100 bg-slate-50">
+                    {/* Progress Bar Display if Fixing */}
+                    {isFixing && (
+                        <div className="mb-3 animate-in fade-in slide-in-from-bottom-2">
+                            <div className="flex justify-between text-xs font-bold text-slate-500 mb-1">
+                                <span>Processing Document...</span>
+                                <span>{fixProgress}%</span>
+                            </div>
+                            <div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden">
+                                <div 
+                                    className="h-full bg-indigo-600 transition-all duration-500 ease-out"
+                                    style={{ width: `${Math.max(5, fixProgress)}%` }}
+                                ></div>
+                            </div>
+                        </div>
+                    )}
+                    
                     <button
                         onClick={handleFixClick}
                         disabled={isFixing}
@@ -592,7 +623,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
                         {isFixing ? (
                             <>
                                 <RefreshCw className="w-5 h-5 animate-spin" />
-                                Rewriting Document...
+                                {fixProgress < 99 ? 'Rewriting Chunks...' : 'Finalizing...'}
                             </>
                         ) : (
                             <>
@@ -634,7 +665,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
 
                  <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-slate-200">
                      {viewMode === 'diff' ? (
-                         <DiffDisplay oldText={originalText} newText={fixResult.rewrittenText} />
+                         <DiffDisplay oldText={originalText} newText={cleanMarkdown(fixResult.rewrittenText)} />
                      ) : (
                          <TextDisplay text={fixResult.rewrittenText} />
                      )}
@@ -690,6 +721,19 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
                             Verify PDF
                         </button>
                     </div>
+
+                    {/* NEW Start New Scan Button */}
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.preventDefault();
+                            onReset();
+                        }}
+                        className="w-full py-3 bg-white border-2 border-dashed border-slate-300 hover:border-indigo-400 text-slate-500 hover:text-indigo-600 font-bold rounded-xl transition-all flex items-center justify-center gap-2 text-sm group"
+                    >
+                        <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
+                        Start New Scan
+                    </button>
                  </div>
              </div>
            )}

@@ -18,6 +18,7 @@ const App: React.FC = () => {
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [fixResult, setFixResult] = useState<FixResult | null>(null);
   const [scoreHistory, setScoreHistory] = useState<number[]>([]);
+  const [fixProgress, setFixProgress] = useState(0); // New State: Track rewrite progress
   const [isAdmin, setIsAdmin] = useState(false);
   const [isRestoring, setIsRestoring] = useState(true);
 
@@ -132,6 +133,7 @@ const App: React.FC = () => {
     if (!document || !analysis) return;
 
     setStatus(AppStatus.FIXING);
+    setFixProgress(0);
     const loadingToast = toast.loading(
         options.includeCitations 
         ? 'Rapidly Researching & Rewriting...' 
@@ -139,7 +141,14 @@ const App: React.FC = () => {
     );
     
     try {
-      const result = await fixPlagiarism(document.originalText, analysis.detectedIssues, options);
+      // Pass progress callback to service
+      const result = await fixPlagiarism(
+          document.originalText, 
+          analysis.detectedIssues, 
+          options,
+          (percent) => setFixProgress(percent)
+      );
+      
       setFixResult(result);
       setScoreHistory(prev => [...prev, result.newPlagiarismScore]);
       setStatus(AppStatus.COMPLETED);
@@ -163,14 +172,21 @@ const App: React.FC = () => {
   };
 
   const handleReset = () => {
-    if (window.confirm("Start a new scan? This will clear current results.")) {
-        setDocument(null);
-        setAnalysis(null);
-        setFixResult(null);
-        setScoreHistory([]);
-        setStatus(AppStatus.IDLE);
-        localStorage.removeItem(SESSION_KEY);
-    }
+    // Clear session immediately
+    localStorage.removeItem(SESSION_KEY);
+    
+    // Reset all state to return to FileUpload view
+    setDocument(null);
+    setAnalysis(null);
+    setFixResult(null);
+    setScoreHistory([]);
+    setStatus(AppStatus.IDLE);
+    setFixProgress(0);
+    
+    // Ensure scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    toast.success("Ready for new document", { icon: '📄' });
   };
 
   if (isRestoring) {
@@ -237,6 +253,7 @@ const App: React.FC = () => {
                 analysis={analysis}
                 fixResult={fixResult}
                 status={status}
+                fixProgress={fixProgress}
                 onFix={handleFixPlagiarism}
                 onReset={handleReset}
                 scoreHistory={scoreHistory}
