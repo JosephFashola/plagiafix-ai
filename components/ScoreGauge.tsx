@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, Tooltip } from 'recharts';
 import { HelpCircle, X } from 'lucide-react';
@@ -61,7 +62,7 @@ const ScoreGauge: React.FC<ScoreGaugeProps> = ({ score, label, history = [] }) =
         </div>
       )}
 
-      <div className="flex flex-col items-center justify-center flex-grow w-full">
+      <div className="flex flex-col items-center justify-center flex-grow w-full min-w-0">
         {/* Strictly fixed dimensions for the Gauge to prevent 0-width errors */}
         <div style={{ width: 128, height: 128, position: 'relative' }}>
             <PieChart width={128} height={128}>
@@ -91,10 +92,10 @@ const ScoreGauge: React.FC<ScoreGaugeProps> = ({ score, label, history = [] }) =
       </div>
 
       {showTrend && (
-        <div className="w-full mt-4 border-t border-slate-100 pt-2 flex flex-col">
+        <div className="w-full mt-4 border-t border-slate-100 pt-2 flex flex-col min-w-0">
             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1 text-center">Score Improvement</p>
-            {/* Explicit height definition for the chart container */}
-            <div style={{ width: '100%', height: 60 }}>
+            {/* Explicit height definition for the chart container with min-width safety */}
+            <div style={{ width: '100%', height: 60, minWidth: 100 }}>
                 <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={trendData}>
                         <defs>

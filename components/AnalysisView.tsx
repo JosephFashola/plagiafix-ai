@@ -2,9 +2,11 @@
 import React, { useState, useEffect } from 'react';
 import { AnalysisResult, AppStatus, FixResult, FixOptions, HumanizeMode, ParagraphAnalysis, CitationStyle, ForensicData } from '../types';
 import ScoreGauge from './ScoreGauge';
-import { Wand2, AlertTriangle, CheckCircle2, ArrowRight, Copy, Check, Eye, BookOpen, FileText, Star, Sparkles, Flame, Zap, Fingerprint, User, Quote, Share2, Twitter, Linkedin, Facebook, Microscope, Search, BarChart3, ExternalLink, Download, Split, Ghost, GraduationCap, PenTool, RefreshCw, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Wand2, AlertTriangle, CheckCircle2, ArrowRight, Copy, Check, Eye, BookOpen, FileText, Star, Sparkles, Flame, Zap, Fingerprint, User, Quote, Share2, Twitter, Linkedin, Facebook, Microscope, Search, BarChart3, ExternalLink, Download, Split, Ghost, GraduationCap, PenTool, RefreshCw, X, ChevronDown, ChevronUp, MonitorPlay } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { downloadDocx, downloadPdf } from '../services/exportService';
+import { generatePresentationContent } from '../services/geminiService';
+import { generatePptx } from '../services/slideGenerator';
 import { Telemetry } from '../services/telemetry';
 // @ts-ignore
 import * as Diff from 'diff';
@@ -333,6 +335,9 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
   const [feedbackText, setFeedbackText] = useState('');
   const [isFeedbackSubmitted, setIsFeedbackSubmitted] = useState(false);
 
+  // New: PPTX Generation State
+  const [isGeneratingSlides, setIsGeneratingSlides] = useState(false);
+
   useEffect(() => {
     setRating(0);
     setHoverRating(0);
@@ -359,6 +364,24 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
           dialect,
           styleSample: showStyleInput ? styleSample : undefined
       });
+  };
+
+  const handleGenerateSlides = async () => {
+      if (!fixResult && !originalText) return;
+      setIsGeneratingSlides(true);
+      const textToUse = fixResult ? fixResult.rewrittenText : originalText;
+      
+      try {
+          // 1. Get structured JSON from Gemini
+          const slides = await generatePresentationContent(textToUse);
+          // 2. Build PPTX
+          await generatePptx(slides, 'PlagiaFix_Presentation');
+      } catch (e: any) {
+          console.error(e);
+          toast.error("Could not generate slides. " + e.message);
+      } finally {
+          setIsGeneratingSlides(false);
+      }
   };
 
   const submitFeedback = () => {
@@ -685,26 +708,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
 
                  {/* Feedback & Actions */}
                  <div className="p-4 bg-slate-50 border-t border-slate-200 space-y-4">
-                    {/* Rating */}
-                    {!isFeedbackSubmitted && (
-                        <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-slate-200">
-                            <span className="text-xs font-bold text-slate-500">Rate Quality:</span>
-                            <div className="flex gap-1">
-                                {[1, 2, 3, 4, 5].map((star) => (
-                                    <button
-                                        key={star}
-                                        onMouseEnter={() => setHoverRating(star)}
-                                        onMouseLeave={() => setHoverRating(0)}
-                                        onClick={() => { setRating(star); if(star > 0) submitFeedback(); }}
-                                        className="transition-transform hover:scale-110"
-                                    >
-                                        <Star className={`w-5 h-5 ${star <= (hoverRating || rating) ? 'fill-yellow-400 text-yellow-400' : 'text-slate-300'}`} />
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
+                    
                     <div className="grid grid-cols-2 gap-3">
                         <button 
                             onClick={() => downloadDocx(fixResult.rewrittenText, 'PlagiaFix_Rewritten', fixResult.references)}
@@ -722,7 +726,26 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
                         </button>
                     </div>
 
-                    {/* NEW Start New Scan Button */}
+                    {/* NEW GENERATE PRESENTATION BUTTON */}
+                    <button
+                        onClick={handleGenerateSlides}
+                        disabled={isGeneratingSlides}
+                        className="w-full py-3 bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+                    >
+                        {isGeneratingSlides ? (
+                            <>
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                                Designing Slides...
+                            </>
+                        ) : (
+                            <>
+                                <MonitorPlay className="w-4 h-4" />
+                                Generate PowerPoint Slides
+                            </>
+                        )}
+                    </button>
+
+                    {/* Start New Scan Button */}
                     <button
                         type="button"
                         onClick={(e) => {

@@ -1,7 +1,9 @@
+
 import React, { useEffect, useState } from 'react';
 import { AppStats, LogEntry } from '../types';
 import { Telemetry } from '../services/telemetry';
-import { Activity, Users, Database, DollarSign, Clock, Wifi, WifiOff, Eye, Plug, X, RefreshCw, Globe2, Star, MessageSquare, Calendar, Filter } from 'lucide-react';
+import { testGeminiConnection } from '../services/geminiService';
+import { Activity, Users, Database, DollarSign, Clock, Wifi, WifiOff, Eye, Plug, X, RefreshCw, Globe2, Star, MessageSquare, Calendar, Filter, ServerCrash, CheckCircle2, Zap } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import toast from 'react-hot-toast';
 
@@ -40,6 +42,13 @@ const AdminDashboard: React.FC = () => {
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [manualUrl, setManualUrl] = useState('');
   const [manualKey, setManualKey] = useState('');
+
+  // Diagnostics State
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResults, setTestResults] = useState<{
+      gemini: { status: 'PENDING' | 'OK' | 'ERROR', latency: number, msg?: string },
+      database: { status: 'PENDING' | 'OK' | 'ERROR', latency: number, type: 'CLOUD' | 'LOCAL' }
+  } | null>(null);
 
   // Process Logs to extract Metrics & Chart Data
   const processLogs = (currentLogs: LogEntry[], range: TimeRange) => {
@@ -96,14 +105,9 @@ const AdminDashboard: React.FC = () => {
         .sort((a, b) => b.value - a.value)
         .slice(0, 5); // Top 5
       
-      // Sort Chart Data by time implies we need to handle the keys. 
-      // For simplicity in this demo, we reverse the array assuming logs are new->old,
-      // but Recharts needs old->new.
-      // A robust way is to rely on the fact that logs come in order.
-      // We will just map the buckets.
       const processedChartData = Object.entries(chartBuckets)
           .map(([name, data]) => ({ name, ...data }))
-          .reverse(); // Logs are usually Newest first, so reversing gives Oldest first for chart x-axis
+          .reverse(); 
 
       setCountryData(cData);
       setChartData(processedChartData.length > 0 ? processedChartData : [{ name: 'No Activity', scans: 0, fixes: 0 }]);
@@ -172,6 +176,34 @@ const AdminDashboard: React.FC = () => {
       
       setIsCloudConnected(Telemetry.isConnected());
       setIsRefreshing(false);
+  };
+
+  const runDiagnostics = async () => {
+      setIsTesting(true);
+      setTestResults({
+          gemini: { status: 'PENDING', latency: 0 },
+          database: { status: 'PENDING', latency: 0, type: Telemetry.isConnected() ? 'CLOUD' : 'LOCAL' }
+      });
+
+      // 1. Gemini Test
+      const geminiRes = await testGeminiConnection();
+      
+      // 2. DB Test
+      const startDb = Date.now();
+      await Telemetry.getStats(false); // Quick fetch
+      const dbLatency = Date.now() - startDb;
+
+      setTestResults({
+          gemini: { status: geminiRes.status, latency: geminiRes.latency, msg: geminiRes.message },
+          database: { status: 'OK', latency: dbLatency, type: Telemetry.isConnected() ? 'CLOUD' : 'LOCAL' }
+      });
+      setIsTesting(false);
+      
+      if (geminiRes.status === 'OK') {
+          toast.success("All systems operational");
+      } else {
+          toast.error("System health degraded");
+      }
   };
 
   useEffect(() => {
@@ -371,37 +403,84 @@ const AdminDashboard: React.FC = () => {
         {/* Main Chart Section */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* Chart */}
+          {/* Chart & Diagnostics */}
           <div className="lg:col-span-2 space-y-8">
+             {/* Diagnostics Panel (Daily Test) */}
+             <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 shadow-lg">
+                 <div className="flex justify-between items-center mb-4">
+                     <h3 className="text-lg font-bold flex items-center gap-2">
+                        <Zap className="w-5 h-5 text-indigo-400" />
+                        System Diagnostics
+                    </h3>
+                    <button 
+                        onClick={runDiagnostics}
+                        disabled={isTesting}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-2 disabled:opacity-50"
+                    >
+                        {isTesting ? <RefreshCw className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />}
+                        Run Daily Health Check
+                    </button>
+                 </div>
+                 
+                 <div className="grid grid-cols-2 gap-4">
+                     {/* API Health */}
+                     <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
+                         <div className="flex justify-between items-center mb-2">
+                             <span className="text-slate-400 text-xs font-bold uppercase">Gemini Engine</span>
+                             {testResults?.gemini.status === 'OK' && <span className="text-emerald-400 text-xs font-bold">OPERATIONAL</span>}
+                             {testResults?.gemini.status === 'ERROR' && <span className="text-red-400 text-xs font-bold">ERROR</span>}
+                         </div>
+                         <div className="flex items-baseline gap-2">
+                             <span className="text-2xl font-bold text-white">{testResults ? testResults.gemini.latency : '-'}</span>
+                             <span className="text-xs text-slate-500">ms latency</span>
+                         </div>
+                         {testResults?.gemini.msg && <p className="text-xs text-red-400 mt-2">{testResults.gemini.msg}</p>}
+                     </div>
+
+                     {/* DB Health */}
+                     <div className="bg-slate-900/50 p-4 rounded-lg border border-slate-700">
+                         <div className="flex justify-between items-center mb-2">
+                             <span className="text-slate-400 text-xs font-bold uppercase">Telemetry DB</span>
+                             {testResults?.database.status === 'OK' && <span className="text-emerald-400 text-xs font-bold">CONNECTED ({testResults.database.type})</span>}
+                         </div>
+                         <div className="flex items-baseline gap-2">
+                             <span className="text-2xl font-bold text-white">{testResults ? testResults.database.latency : '-'}</span>
+                             <span className="text-xs text-slate-500">ms latency</span>
+                         </div>
+                     </div>
+                 </div>
+             </div>
+
              {/* Usage Trend */}
              <div className="bg-slate-800 rounded-xl border border-slate-700 p-6 shadow-lg">
                 <h3 className="text-lg font-bold mb-6 flex items-center gap-2">
                     Usage Snapshot
                     <span className="text-xs font-normal text-slate-400 bg-slate-700 px-2 py-1 rounded">Activity</span>
                 </h3>
-                <div className="h-[250px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData}>
-                    <defs>
-                        <linearGradient id="colorScans" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                        </linearGradient>
-                        <linearGradient id="colorFixes" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
-                        </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="name" stroke="#94a3b8" />
-                    <YAxis stroke="#94a3b8" />
-                    <Tooltip 
-                        contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#fff' }}
-                    />
-                    <Area type="monotone" dataKey="scans" stroke="#6366f1" fillOpacity={1} fill="url(#colorScans)" />
-                    <Area type="monotone" dataKey="fixes" stroke="#a855f7" fillOpacity={1} fill="url(#colorFixes)" />
-                    </AreaChart>
-                </ResponsiveContainer>
+                {/* Explicit container with min-width and min-height to fix Recharts error */}
+                <div style={{ height: '250px', width: '100%', minWidth: '300px' }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={chartData}>
+                        <defs>
+                            <linearGradient id="colorScans" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                            </linearGradient>
+                            <linearGradient id="colorFixes" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#a855f7" stopOpacity={0.3}/>
+                            <stop offset="95%" stopColor="#a855f7" stopOpacity={0}/>
+                            </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                        <XAxis dataKey="name" stroke="#94a3b8" />
+                        <YAxis stroke="#94a3b8" />
+                        <Tooltip 
+                            contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', color: '#fff' }}
+                        />
+                        <Area type="monotone" dataKey="scans" stroke="#6366f1" fillOpacity={1} fill="url(#colorScans)" />
+                        <Area type="monotone" dataKey="fixes" stroke="#a855f7" fillOpacity={1} fill="url(#colorFixes)" />
+                        </AreaChart>
+                    </ResponsiveContainer>
                 </div>
             </div>
 
@@ -411,7 +490,8 @@ const AdminDashboard: React.FC = () => {
                     <Globe2 className="w-5 h-5 text-indigo-400" />
                     Traffic by Country (Top 5)
                 </h3>
-                <div className="h-[200px] w-full">
+                {/* Explicit container with min-width and min-height to fix Recharts error */}
+                <div style={{ height: '200px', width: '100%', minWidth: '300px' }}>
                  {countryData.length > 0 ? (
                     <ResponsiveContainer width="100%" height="100%">
                         <BarChart data={countryData} layout="vertical">

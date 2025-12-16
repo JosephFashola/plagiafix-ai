@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { AnalysisResult, FixResult, FixOptions, HumanizeMode, ParagraphAnalysis, CitationStyle, ForensicData, SourceMatch } from "../types";
+import { AnalysisResult, FixResult, FixOptions, HumanizeMode, ParagraphAnalysis, CitationStyle, ForensicData, SourceMatch, SlideContent } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -10,11 +10,14 @@ const ANALYZE_MODEL_ID = 'gemini-3-pro-preview';
 const FIX_MODEL_ID = 'gemini-3-pro-preview'; 
 const FALLBACK_MODEL_ID = 'gemini-2.5-flash';
 
+// RECALIBRATED: Expanded list of "AI Fingerprint" words that Turnitin looks for.
+// Removing these is the easiest way to drop the AI score immediately.
 const BANNED_WORDS = [
-    "delve", "tapestry", "underscoring", "pivotal", "landscape", "moreover", "furthermore",
-    "in conclusion", "it is important to note", "nuance", "testament", "realm", "fostering",
-    "comprehensive", "utilize", "harnessing", "unveiling", "crucial", "intricate", "orchestrate",
-    "multifaceted", "demystify", "navigating the", "intersection of", "aforementioned", "notably"
+    "delve", "tapestry", "underscoring", "landscape of", "nuance", "testament to", "realm of", 
+    "unveiling", "intricate", "orchestrate", "multifaceted", "demystify", "navigating the", 
+    "intersection of", "rich tapestry", "aforementioned", "game-changer", "paradigm shift",
+    "unleash", "unlock", "pivotal", "dynamic", "fostering", "harnessing", "leverage",
+    "in summary", "in conclusion", "moreover", "furthermore", "additionally"
 ];
 
 export const checkApiKey = (): boolean => {
@@ -30,12 +33,24 @@ const parseJSONSafely = (text: string): any => {
   // Remove markdown code blocks
   cleanText = cleanText.replace(/```json\s*/g, '').replace(/```/g, '');
   
-  // Attempt to find the first valid JSON object start and end
-  const firstOpen = cleanText.indexOf('{');
-  const lastClose = cleanText.lastIndexOf('}');
+  // Determine if we are looking for an object or an array
+  const firstSquare = cleanText.indexOf('[');
+  const firstCurly = cleanText.indexOf('{');
   
-  if (firstOpen !== -1 && lastClose !== -1) {
-    cleanText = cleanText.substring(firstOpen, lastClose + 1);
+  let startIndex = -1;
+  let endIndex = -1;
+
+  // If array appears first (or only array exists)
+  if (firstSquare !== -1 && (firstCurly === -1 || firstSquare < firstCurly)) {
+      startIndex = firstSquare;
+      endIndex = cleanText.lastIndexOf(']');
+  } else if (firstCurly !== -1) {
+      startIndex = firstCurly;
+      endIndex = cleanText.lastIndexOf('}');
+  }
+
+  if (startIndex !== -1 && endIndex !== -1) {
+      cleanText = cleanText.substring(startIndex, endIndex + 1);
   }
 
   try {
@@ -88,8 +103,11 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 3, baseDelay = 1000)
         try {
             return await fn();
         } catch (error: any) {
-            const isRateLimit = error.message?.includes('429') || error.message?.includes('quota') || error.message?.includes('exhausted');
-            const isServerBusy = error.message?.includes('503') || error.message?.includes('overloaded');
+            const msg = error.message || '';
+            // Robust check for various API error formats
+            const isRateLimit = msg.includes('429') || msg.includes('quota') || msg.includes('exhausted');
+            // Catch 500s, 503s, and specific RPC failures
+            const isServerBusy = msg.includes('503') || msg.includes('overloaded') || msg.includes('500') || msg.includes('Rpc failed') || msg.includes('xhr error');
             
             // If it's the last attempt or it's not a temporary error, throw
             if (attempt === retries || (!isRateLimit && !isServerBusy)) {
@@ -97,12 +115,27 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 3, baseDelay = 1000)
             }
             
             const waitTime = baseDelay * Math.pow(2, attempt - 1);
-            console.log(`API Busy/Rate Limit. Retrying in ${waitTime}ms... (Attempt ${attempt})`);
+            console.log(`API Busy/Rate Limit/RPC Error. Retrying in ${waitTime}ms... (Attempt ${attempt})`);
             await delay(waitTime);
         }
     }
     throw new Error("Max retries exceeded");
 }
+
+// --- SYSTEM DIAGNOSTICS ---
+export const testGeminiConnection = async (): Promise<{ latency: number, status: 'OK' | 'ERROR', message?: string }> => {
+  const start = Date.now();
+  try {
+     // Lightweight ping to Flash model
+     await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: 'ping',
+     });
+     return { latency: Date.now() - start, status: 'OK' };
+  } catch (e: any) {
+     return { latency: 0, status: 'ERROR', message: e.message };
+  }
+};
 
 // --- DETERMINISTIC STYLOMETRY (MATH LAYER) ---
 const calculateForensics = (text: string): ForensicData => {
@@ -285,17 +318,27 @@ export const analyzeDocument = async (text: string): Promise<AnalysisResult> => 
       let calculatedScore = Math.round(totalPlagiarismScore / validResults.length);
       
       // --- CALIBRATION: Reduce False Positives ---
-      // Only boost score if variance is EXTREMELY low (very robotic)
-      if (forensics.sentenceVariance < 3.5) calculatedScore += 10;
-      
       // If we found REAL search matches, the score should effectively be 100
       if (uniqueSources.length > 0) {
           calculatedScore = Math.max(calculatedScore, 85); // Plagiarism is a factual 100% fail
       } else {
-          // If no sources, cap the AI score unless it's blatantly AI
-          if (forensics.aiTriggerWordsFound.length === 0) {
-              calculatedScore = Math.min(calculatedScore, 60); // Cap "suspicion" if no "smoking gun"
+          // IF NO SEARCH MATCHES (AI CHECK ONLY):
+          // Be more forgiving. Only flag high if we see blatant AI words AND low variance.
+          
+          const hasBadWords = forensics.aiTriggerWordsFound.length > 0;
+          const isRobotic = forensics.sentenceVariance < 4;
+
+          if (!hasBadWords && !isRobotic) {
+              // If it looks human and has no forbidden words, crush the AI score.
+              calculatedScore = Math.min(calculatedScore, 15);
+          } else if (hasBadWords && !isRobotic) {
+              // Has a bad word but good flow? Probably human using academic words.
+              calculatedScore = Math.min(calculatedScore, 40);
+          } else if (!hasBadWords && isRobotic) {
+              // No bad words but very robotic? Suspicious.
+              calculatedScore = Math.max(calculatedScore, 65);
           }
+          // If hasBadWords AND isRobotic -> keep high score.
       }
       
       calculatedScore = Math.min(100, Math.max(0, calculatedScore));
@@ -425,50 +468,58 @@ export const fixPlagiarism = async (text: string, currentIssues: string[], optio
       : dialect === 'CA' ? "Canadian English"
       : "Australian English";
 
-  // --- DYNAMIC MODE CONFIGURATION ---
+  // --- DYNAMIC MODE CONFIGURATION (TUNED FOR ANTI-AI) ---
   let modePrompt = "";
   let tempConfig = 1.0;
   
   switch (mode) {
       case 'Ghost':
+          // EXTREME STEALTH MODE
           modePrompt = `
-            **MODE: GHOST (DEEP STEALTH)**
-            - **Objective**: Defeat GPTZero, Turnitin, and Originality.ai.
-            - **Technique 1 (Burstiness)**: Extreme variance in sentence length. Mix 3-word sentences with 40-word complex sentences.
-            - **Technique 2 (Perplexity)**: Use unexpected adjectives and idiomatic phrasing. 
-            - **Technique 3 (Imperfection)**: Start sentences with conjunctions (And, But, So). Use contractions.
+            **MODE: GHOST (ANTI-TURNITIN PROTOCOL)**
+            Turnitin and GPTZero look for: 
+            1. Uniform sentence lengths (Low Burstiness).
+            2. High usage of common transition words (Moreover, Thus, Therefore).
+            3. Perfect, predictable grammar structure (Subject-Verb-Object).
+
+            **YOUR INSTRUCTIONS TO DEFEAT DETECTION:**
+            1. **Syntax Chaos**: Purposefully vary your sentence structure. Start sentences with Prepositions, Gerunds, or Conjunctions (But, And, So). 
+            2. **Add "Noise"**: Use occasional rhetorical questions, em-dashes for breaks, and idiomatic phrasing that feels "messy" but professional.
+            3. **Fragments**: In rare cases, use a stylistic sentence fragment to break the rhythm.
+            4. **Vocabulary**: Do NOT use "fancy" AI words (e.g., 'tapestry', 'orchestrate'). Use punchy, Anglo-Saxon verbs (e.g., 'fix' instead of 'remediate', 'use' instead of 'leverage').
           `;
-          tempConfig = 1.45;
+          tempConfig = 1.55; // Increased temperature for higher perplexity
           break;
       case 'Academic':
           modePrompt = `
             **MODE: ACADEMIC SCHOLAR**
-            - **Objective**: PhD-level density and precision.
-            - **Style**: Passive voice is allowed where appropriate. Use domain-specific terminology.
+            - **Objective**: High-level analysis without the "Robotic AI" feel.
+            - **Style**: Avoid the "In conclusion" or "In this essay" templates. Dive straight into the argument.
+            - **Tone**: Authoritative but nuanced. Use hedging language (e.g., "suggests," "indicates") rather than absolute AI certainty.
           `;
-          tempConfig = 0.9;
+          tempConfig = 1.0;
           break;
       case 'Creative':
           modePrompt = `
             **MODE: CREATIVE STORYTELLER**
-            - **Objective**: Engagement and flow.
-            - **Style**: Show, don't tell. Use sensory language.
+            - **Objective**: High engagement.
+            - **Style**: Show, don't tell. Focus on sensory details. 
           `;
-          tempConfig = 1.25;
+          tempConfig = 1.35;
           break;
       default: // Standard
           modePrompt = `
             **MODE: STANDARD PROFESSIONAL**
             - **Objective**: Clear, effective communication.
-            - **Style**: Business casual.
+            - **Style**: Business casual. Avoid "fluff".
           `;
           tempConfig = 1.0;
   }
 
   const strengthInstruction = strength > 80 
-      ? "REWRITE: AGGRESSIVE. Change 90% of the sentence structures. Merge short sentences. Split long ones." 
+      ? "REWRITE: AGGRESSIVE. Change 90% of the sentence structures. Merge short sentences. Split long ones. Replace all common AI adjectives." 
       : strength > 40
-      ? "REWRITE: MODERATE. Rephrase to sound more natural but keep the logical flow."
+      ? "REWRITE: MODERATE. Rephrase to sound more natural. Increase sentence variety."
       : "REWRITE: LIGHT. Polish the grammar and remove 'AI' keywords.";
 
   // --- ENHANCED CITATION LOGIC ---
@@ -491,8 +542,10 @@ export const fixPlagiarism = async (text: string, currentIssues: string[], optio
   const systemInstruction = `
     You are a world-class Ghostwriter and Academic Editor.
     
-    **BANNED VOCABULARY (INSTANT FAIL):**
+    **CRITICAL: AVOID THESE WORDS (THEY TRIGGER AI DETECTION):**
     ${BANNED_WORDS.join(", ")}.
+    Also avoid: "moreover", "crucial", "notably", "in conclusion", "furthermore". 
+    Use simpler or more specific alternatives.
     
     **INSTRUCTIONS:**
     1. **Style**: ${styleInjection ? "Follow the USER STYLE SAMPLE provided below." : modePrompt}
@@ -500,6 +553,7 @@ export const fixPlagiarism = async (text: string, currentIssues: string[], optio
     3. **Intensity**: ${strengthInstruction}
     4. **Human Touch**: Add slight nuance, strong opinions, and "messy" human transitions.
     5. **Formatting**: Return PLAIN TEXT only. Do not use Markdown (no **bold**, no # headings). Use standard spacing.
+    6. **Burstiness**: Ensure sentence lengths vary significantly. Do not use a uniform rhythm.
 
     ${styleInjection}
     ${citationInstruction}
@@ -660,3 +714,68 @@ function processResponse(response: any): any {
     
     return chunkResult;
 }
+
+export const generatePresentationContent = async (text: string): Promise<SlideContent[]> => {
+    // If text is extremely long, truncate it to a safe context window for summarization
+    const safeText = text.slice(0, 30000); 
+
+    const systemInstruction = `
+        You are an expert Academic Presenter and Research Synthesizer.
+        
+        **TASK:**
+        Convert the provided academic/research text into a structured presentation deck of 8-12 slides.
+        
+        **REQUIREMENTS:**
+        1. **Slide 1**: Title Slide (Title of paper, Subtitle/Author placeholder).
+        2. **Slide 2**: Introduction / Thesis Statement.
+        3. **Middle Slides**: Key Methodology, Results, Analysis, Discussion points.
+        4. **Last Slide**: Conclusion & Future Work.
+        5. **Format & Aesthetics**:
+           - **Title**: Concise and punchy.
+           - **Bullets**: STRICTLY MAX 4 BULLETS PER SLIDE. This enables a modern "Card" visual layout.
+           - **Content**: Each bullet must be a complete, punchy sentence. No long paragraphs.
+           - **Speaker Notes**: A short script (40-60 words) for the presenter to say for that slide.
+        
+        **OUTPUT:**
+        Return strictly a JSON array of objects.
+        JSON Structure:
+        [
+            {
+                "title": "Slide Title",
+                "bullets": ["Point 1", "Point 2"],
+                "speakerNotes": "Script for this slide..."
+            }
+        ]
+    `;
+
+    return withRetry(async () => {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash', // Flash is sufficient and faster for summarization
+            contents: safeText,
+            config: {
+                systemInstruction,
+                temperature: 0.7,
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            title: { type: Type.STRING },
+                            bullets: { type: Type.ARRAY, items: { type: Type.STRING } },
+                            speakerNotes: { type: Type.STRING }
+                        },
+                        required: ["title", "bullets", "speakerNotes"]
+                    }
+                }
+            }
+        });
+
+        const parsed = parseJSONSafely(response.text || '[]');
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+            throw new Error("Failed to generate slide content.");
+        }
+
+        return parsed as SlideContent[];
+    });
+};

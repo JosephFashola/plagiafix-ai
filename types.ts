@@ -59,6 +59,12 @@ export interface FixResult {
   references?: string[];
 }
 
+export interface SlideContent {
+  title: string;
+  bullets: string[];
+  speakerNotes: string;
+}
+
 export interface DocumentState {
   originalText: string;
   fileName?: string;
