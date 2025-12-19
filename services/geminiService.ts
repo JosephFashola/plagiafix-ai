@@ -4,9 +4,10 @@ import { AnalysisResult, FixResult, FixOptions, HumanizeMode, ParagraphAnalysis,
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
+// Using guidelines recommended models
 const ANALYZE_MODEL_ID = 'gemini-3-pro-preview'; 
 const FIX_MODEL_ID = 'gemini-3-pro-preview'; 
-const FALLBACK_MODEL_ID = 'gemini-2.5-flash';
+const FALLBACK_MODEL_ID = 'gemini-3-flash-preview';
 
 const BANNED_WORDS = [
     "delve", "tapestry", "underscoring", "landscape of", "nuance", "testament to", "realm of", 
@@ -80,7 +81,8 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 3, baseDelay = 1000)
 export const testGeminiConnection = async (): Promise<{ latency: number, status: 'OK' | 'ERROR', message?: string }> => {
   const start = Date.now();
   try {
-     await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: 'ping' });
+     // Updated to gemini-3-flash-preview for connectivity test per guidelines
+     await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: 'ping' });
      return { latency: Date.now() - start, status: 'OK' };
   } catch (e: any) {
      return { latency: 0, status: 'ERROR', message: e.message };

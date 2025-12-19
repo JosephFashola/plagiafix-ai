@@ -7,7 +7,6 @@ export enum AppStatus {
   ERROR = 'ERROR'
 }
 
-// Added DocumentState interface to fix import error in App.tsx
 export interface DocumentState {
   originalText: string;
   fileName: string;
@@ -15,7 +14,7 @@ export interface DocumentState {
 
 export interface ParagraphAnalysis {
   text: string;
-  riskScore: number; // 0-100
+  riskScore: number;
   matchType?: 'AI' | 'PLAGIARISM' | 'MIXED' | 'SAFE';
   evidence?: string;
 }
@@ -75,9 +74,11 @@ export interface BenchmarkResult {
   latency: number;
   rawAiScore: number;
   stealthScore: number;
-  bypassEfficiency: number; // Percentage reduction
+  bypassEfficiency: number;
   status: 'PASS' | 'FAIL' | 'WARNING';
 }
+
+export type TimeRange = '1H' | '24H' | '7D' | '30D' | 'ALL';
 
 export interface AppStats {
   totalScans: number;
@@ -87,10 +88,11 @@ export interface AppStats {
   totalSlides: number;
   tokensUsedEstimate: number;
   lastActive: string;
-  firstActive?: string; 
+  firstActive?: string;
+  avgSessionDuration?: number; // in seconds
+  activeGeoRegions?: { name: string, count: number }[];
 }
 
-// Added 'SHARE' to LogType to fix type error in components/AnalysisView.tsx
 export type LogType = 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'FEEDBACK' | 'SLIDE' | 'BENCHMARK' | 'SHARE';
 
 export interface LogEntry {
