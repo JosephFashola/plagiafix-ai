@@ -7,11 +7,17 @@ export enum AppStatus {
   ERROR = 'ERROR'
 }
 
+// Added DocumentState interface to fix import error in App.tsx
+export interface DocumentState {
+  originalText: string;
+  fileName: string;
+}
+
 export interface ParagraphAnalysis {
   text: string;
   riskScore: number; // 0-100
-  matchType?: 'AI' | 'PLAGIARISM' | 'MIXED' | 'SAFE'; // New: Why was it flagged?
-  evidence?: string; // New: Specific proof (URL or Math stat)
+  matchType?: 'AI' | 'PLAGIARISM' | 'MIXED' | 'SAFE';
+  evidence?: string;
 }
 
 export interface SourceMatch {
@@ -23,33 +29,32 @@ export interface SourceMatch {
 
 export interface ForensicData {
   avgSentenceLength: number;
-  sentenceVariance: number; // Burstiness
-  uniqueWordRatio: number; // Perplexity proxy
+  sentenceVariance: number;
+  uniqueWordRatio: number;
   aiTriggerWordsFound: string[];
   readabilityScore: number;
 }
 
 export interface AnalysisResult {
   originalScore: number;
-  plagiarismScore: number; // 0-100, where 100 is high plagiarism
+  plagiarismScore: number;
   critique: string;
   detectedIssues: string[];
   paragraphBreakdown: ParagraphAnalysis[];
-  sourcesFound: SourceMatch[]; // REAL web sources
-  forensics: ForensicData; // Mathematical analysis
+  sourcesFound: SourceMatch[];
+  forensics: ForensicData;
 }
 
 export type HumanizeMode = 'Standard' | 'Ghost' | 'Academic' | 'Creative';
-
 export type CitationStyle = 'APA' | 'MLA' | 'Chicago' | 'Harvard' | 'IEEE';
 
 export interface FixOptions {
   includeCitations: boolean;
   citationStyle?: CitationStyle;
   mode: HumanizeMode;
-  strength: number; // 1-100 (Intensity of rewriting)
+  strength: number;
   dialect: 'US' | 'UK' | 'CA' | 'AU';
-  styleSample?: string; // New: User's own writing style
+  styleSample?: string;
 }
 
 export interface FixResult {
@@ -65,24 +70,31 @@ export interface SlideContent {
   speakerNotes: string;
 }
 
-export interface DocumentState {
-  originalText: string;
-  fileName?: string;
+export interface BenchmarkResult {
+  timestamp: number;
+  latency: number;
+  rawAiScore: number;
+  stealthScore: number;
+  bypassEfficiency: number; // Percentage reduction
+  status: 'PASS' | 'FAIL' | 'WARNING';
 }
 
-// Telemetry Types
 export interface AppStats {
   totalScans: number;
   totalFixes: number;
   totalErrors: number;
-  totalVisits: number; // New metric
+  totalVisits: number;
+  totalSlides: number;
   tokensUsedEstimate: number;
   lastActive: string;
-  firstActive?: string; // Tracks when the database row was created (first deployment)
+  firstActive?: string; 
 }
+
+// Added 'SHARE' to LogType to fix type error in components/AnalysisView.tsx
+export type LogType = 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'FEEDBACK' | 'SLIDE' | 'BENCHMARK' | 'SHARE';
 
 export interface LogEntry {
   timestamp: number;
-  type: 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'FEEDBACK';
+  type: LogType;
   details: string;
 }

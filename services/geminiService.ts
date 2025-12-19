@@ -1,17 +1,13 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { AnalysisResult, FixResult, FixOptions, HumanizeMode, ParagraphAnalysis, CitationStyle, ForensicData, SourceMatch, SlideContent } from "../types";
+import { AnalysisResult, FixResult, FixOptions, HumanizeMode, ParagraphAnalysis, CitationStyle, ForensicData, SourceMatch, SlideContent, BenchmarkResult } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// CONFIGURATION
-// Use Pro for analysis to ensure "Greatest Accuracy" in understanding context and search results
 const ANALYZE_MODEL_ID = 'gemini-3-pro-preview'; 
 const FIX_MODEL_ID = 'gemini-3-pro-preview'; 
 const FALLBACK_MODEL_ID = 'gemini-2.5-flash';
 
-// RECALIBRATED: Expanded list of "AI Fingerprint" words that Turnitin looks for.
-// Removing these is the easiest way to drop the AI score immediately.
 const BANNED_WORDS = [
     "delve", "tapestry", "underscoring", "landscape of", "nuance", "testament to", "realm of", 
     "unveiling", "intricate", "orchestrate", "multifaceted", "demystify", "navigating the", 
@@ -24,23 +20,16 @@ export const checkApiKey = (): boolean => {
   return !!process.env.API_KEY;
 };
 
-// Enhanced Delay with Jitter
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms + Math.random() * 100));
 
 const parseJSONSafely = (text: string): any => {
   if (!text) return null;
   let cleanText = text.trim();
-  // Remove markdown code blocks
   cleanText = cleanText.replace(/```json\s*/g, '').replace(/```/g, '');
-  
-  // Determine if we are looking for an object or an array
   const firstSquare = cleanText.indexOf('[');
   const firstCurly = cleanText.indexOf('{');
-  
   let startIndex = -1;
   let endIndex = -1;
-
-  // If array appears first (or only array exists)
   if (firstSquare !== -1 && (firstCurly === -1 || firstSquare < firstCurly)) {
       startIndex = firstSquare;
       endIndex = cleanText.lastIndexOf(']');
@@ -48,41 +37,21 @@ const parseJSONSafely = (text: string): any => {
       startIndex = firstCurly;
       endIndex = cleanText.lastIndexOf('}');
   }
-
   if (startIndex !== -1 && endIndex !== -1) {
       cleanText = cleanText.substring(startIndex, endIndex + 1);
   }
-
-  try {
-    return JSON.parse(cleanText);
-  } catch (e) {
-    console.warn("JSON Parse Failed. Attempting soft repair.", e);
-    return null;
-  }
+  try { return JSON.parse(cleanText); } catch (e) { return null; }
 };
 
 const chunkText = (text: string, maxChunkSize: number = 15000): string[] => {
   if (!text || text.length === 0) return [];
   if (text.length <= maxChunkSize) return [text];
-
   const chunks: string[] = [];
   let currentChunk = '';
-  
   let splitters = text.split(/\n\n/);
   if (splitters.length < 3 && text.length > maxChunkSize) {
       splitters = text.split(/(?<=[.!?])\s+/);
   }
-  
-  const isStillTooBig = splitters.some(s => s.length > maxChunkSize);
-  
-  if (isStillTooBig) {
-      chunks.length = 0;
-      for (let i = 0; i < text.length; i += maxChunkSize) {
-          chunks.push(text.slice(i, i + maxChunkSize));
-      }
-      return chunks;
-  }
-
   for (const part of splitters) {
     if ((currentChunk.length + part.length) > maxChunkSize && currentChunk.length > 0) {
       chunks.push(currentChunk.trim());
@@ -90,78 +59,85 @@ const chunkText = (text: string, maxChunkSize: number = 15000): string[] => {
     }
     currentChunk += (currentChunk.length > 0 ? '\n\n' : '') + part;
   }
-  
-  if (currentChunk.trim().length > 0) {
-    chunks.push(currentChunk.trim());
-  }
-  
+  if (currentChunk.trim().length > 0) chunks.push(currentChunk.trim());
   return chunks;
 };
 
 async function withRetry<T>(fn: () => Promise<T>, retries = 3, baseDelay = 1000): Promise<T> {
     for (let attempt = 1; attempt <= retries; attempt++) {
-        try {
-            return await fn();
-        } catch (error: any) {
+        try { return await fn(); } catch (error: any) {
             const msg = error.message || '';
-            // Robust check for various API error formats
-            const isRateLimit = msg.includes('429') || msg.includes('quota') || msg.includes('exhausted');
-            // Catch 500s, 503s, and specific RPC failures
-            const isServerBusy = msg.includes('503') || msg.includes('overloaded') || msg.includes('500') || msg.includes('Rpc failed') || msg.includes('xhr error');
-            
-            // If it's the last attempt or it's not a temporary error, throw
-            if (attempt === retries || (!isRateLimit && !isServerBusy)) {
-                throw error;
-            }
-            
+            const isRateLimit = msg.includes('429') || msg.includes('quota');
+            const isServerBusy = msg.includes('503') || msg.includes('500') || msg.includes('overloaded');
+            if (attempt === retries || (!isRateLimit && !isServerBusy)) throw error;
             const waitTime = baseDelay * Math.pow(2, attempt - 1);
-            console.log(`API Busy/Rate Limit/RPC Error. Retrying in ${waitTime}ms... (Attempt ${attempt})`);
             await delay(waitTime);
         }
     }
     throw new Error("Max retries exceeded");
 }
 
-// --- SYSTEM DIAGNOSTICS ---
 export const testGeminiConnection = async (): Promise<{ latency: number, status: 'OK' | 'ERROR', message?: string }> => {
   const start = Date.now();
   try {
-     // Lightweight ping to Flash model
-     await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: 'ping',
-     });
+     await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: 'ping' });
      return { latency: Date.now() - start, status: 'OK' };
   } catch (e: any) {
      return { latency: 0, status: 'ERROR', message: e.message };
   }
 };
 
-// --- DETERMINISTIC STYLOMETRY (MATH LAYER) ---
+/**
+ * PERFORM GLOBAL STEALTH BENCHMARK
+ */
+export const runStealthBenchmark = async (): Promise<BenchmarkResult> => {
+    const start = Date.now();
+    try {
+        const rawRes = await ai.models.generateContent({
+            model: FALLBACK_MODEL_ID,
+            contents: "Write a short 200 word essay about the future of artificial intelligence in academia. Use formal tone."
+        });
+        const rawText = rawRes.text;
+        const rawAnalysis = await analyzeDocument(rawText);
+        const rawScore = rawAnalysis.plagiarismScore;
+
+        const fixedRes = await fixPlagiarism(rawText, rawAnalysis.detectedIssues, {
+            mode: 'Ghost',
+            strength: 90,
+            dialect: 'US',
+            includeCitations: false
+        });
+        const fixedText = fixedRes.rewrittenText;
+
+        const fixedAnalysis = await analyzeDocument(fixedText);
+        const stealthScore = fixedAnalysis.plagiarismScore;
+
+        const bypassEfficiency = ((rawScore - stealthScore) / (rawScore || 1)) * 100;
+        const latency = Date.now() - start;
+
+        return {
+            timestamp: Date.now(),
+            latency,
+            rawAiScore: rawScore,
+            stealthScore,
+            bypassEfficiency: Math.round(bypassEfficiency),
+            status: bypassEfficiency > 60 ? 'PASS' : bypassEfficiency > 30 ? 'WARNING' : 'FAIL'
+        };
+    } catch (e: any) {
+        throw new Error(`Benchmark failed: ${e.message}`);
+    }
+};
+
 const calculateForensics = (text: string): ForensicData => {
-    // 1. Sentence Analysis
     const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
     const sentenceLengths = sentences.map(s => s.trim().split(/\s+/).length);
     const avgSentenceLength = sentenceLengths.reduce((a, b) => a + b, 0) / (sentenceLengths.length || 1);
-    
-    // Variance (Burstiness)
     const variance = sentenceLengths.reduce((a, b) => a + Math.pow(b - avgSentenceLength, 2), 0) / (sentenceLengths.length || 1);
     const sentenceVariance = Math.sqrt(variance);
-
-    // 2. Vocabulary Analysis (Perplexity Proxy)
     const words = text.toLowerCase().match(/\b\w+\b/g) || [];
-    const uniqueWords = new Set(words);
-    const uniqueWordRatio = uniqueWords.size / (words.length || 1);
-
-    // 3. AI Trigger Word Hunting (Improved with Word Boundaries)
+    const uniqueWordRatio = new Set(words).size / (words.length || 1);
     const lowerText = text.toLowerCase();
-    const aiTriggerWordsFound = BANNED_WORDS.filter(word => {
-        // Create regex for whole word match only
-        const regex = new RegExp(`\\b${word}\\b`, 'i');
-        return regex.test(lowerText);
-    });
-
-    // 4. Readability (Automated Readability Index - approximated)
+    const aiTriggerWordsFound = BANNED_WORDS.filter(word => new RegExp(`\\b${word}\\b`, 'i').test(lowerText));
     const characters = text.replace(/\s/g, '').length;
     const readabilityScore = 4.71 * (characters / (words.length || 1)) + 0.5 * (words.length / (sentences.length || 1)) - 21.43;
 
@@ -176,116 +152,19 @@ const calculateForensics = (text: string): ForensicData => {
 
 export const analyzeDocument = async (text: string): Promise<AnalysisResult> => {
   if (!process.env.API_KEY) throw new Error("API Key is missing");
-  if (!text || text.trim().length === 0) throw new Error("Document text is empty");
-
-  // 1. Run Client-Side Math (Fast & 100% Accurate for stats)
   const forensics = calculateForensics(text);
-
-  const ANALYSIS_CHUNK_SIZE = 12000; 
-  const chunks = chunkText(text, ANALYSIS_CHUNK_SIZE);
-  
-  // SMART SAMPLING: If document is huge (hundreds of pages), we can't scan ALL of it for detection without rate limits.
-  // We take the Start, Middle, and End to get a representative "Biopsy" of the document.
-  let chunksToAnalyze = chunks;
-  if (chunks.length > 3) {
-      chunksToAnalyze = [
-          chunks[0], // Intro
-          chunks[Math.floor(chunks.length / 2)], // Body
-          chunks[chunks.length - 1] // Conclusion
-      ];
-  } else {
-      chunksToAnalyze = chunks.slice(0, 2); // Default to first 2 for smaller docs
-  }
+  const chunks = chunkText(text, 12000);
+  let chunksToAnalyze = chunks.length > 3 ? [chunks[0], chunks[Math.floor(chunks.length / 2)], chunks[chunks.length - 1]] : chunks.slice(0, 2);
 
   const systemInstruction = `
-    You are a rigorous Forensic Text Analyst and Plagiarism Investigator.
-    
-    **OBJECTIVE:** 
-    Determine if the text is AI-generated OR Plagiarized from the web. 
-    You must rely on EVIDENCE, not just "feel".
-
-    **YOUR TOOLBOX:**
-    1. **Google Search**: You MUST use this to verify if sentences in the text exist on the web.
-    2. **Stylometry**: Analyze sentence rhythm. AI is robotic/uniform. Humans are chaotic/bursty.
-    
-    **SCORING RULES (BE STRICT BUT FAIR):**
-    - **PLAGIARISM (Fact)**: If you find an exact sentence match on Google -> Score 90-100. (MatchType: 'PLAGIARISM')
-    - **AI GENERATED (Pattern)**: If no search match, but text uses words like "delve", "tapestry" or has perfect, robotic grammar -> Score 60-80. (MatchType: 'AI')
-    - **SAFE (Human)**: If text has typos, slang, strong opinions, or varied sentence lengths -> Score 0-10. (MatchType: 'SAFE')
-    
-    **TASK:**
-    1. Search for 3-4 distinctive sentences from the text using Google Search.
-    2. Provide a breakdown of paragraphs with specific evidence (e.g., "Matched Wikipedia" or "Robotic Syntax").
-
-    **OUTPUT FORMAT:**
-    Return a strictly formatted JSON object. Do not include markdown formatting.
-    Structure:
-    {
-      "plagiarismScore": number (0-100),
-      "originalScore": number (0-100),
-      "critique": "string",
-      "detectedIssues": ["string"],
-      "paragraphBreakdown": [
-        {
-          "text": "string (paragraph text)",
-          "riskScore": number (0-100),
-          "matchType": "AI" | "PLAGIARISM" | "MIXED" | "SAFE",
-          "evidence": "string (optional specific proof)"
-        }
-      ]
-    }
+    You are a Forensic Text Analyst. Analyze for AI and Plagiarism. 
+    You MUST return valid JSON with these fields: { "plagiarismScore": number, "originalScore": number, "critique": string, "detectedIssues": string[], "paragraphBreakdown": [ { "text": string, "riskScore": number, "matchType": string, "evidence": string } ] }.
   `;
 
-  // Robust Tiered Fallback
-  const analyzeWithFallback = async (chunk: string): Promise<AnalysisResult> => {
-      try {
-          // Tier 1: Pro Model + Search (Best Quality)
-          return await withRetry(() => analyzeSingleChunk(chunk, systemInstruction, ANALYZE_MODEL_ID, true), 1, 1000);
-      } catch (error: any) {
-          console.warn(`Pro model failed (${error.message}). Switching to Flash...`);
-          try {
-              // Tier 2: Flash Model + Search (High Speed, Good Quality)
-              // Using more retries here as Flash is fast
-              return await withRetry(() => analyzeSingleChunk(chunk, systemInstruction, FALLBACK_MODEL_ID, true), 2, 2000);
-          } catch (err2: any) {
-              console.warn(`Flash+Search failed (${err2.message}). Switching to Offline Mode...`);
-              // Tier 3: Flash Model + NO SEARCH (Offline Safe Mode)
-              // This removes the tool complexity, which is often the cause of 500s.
-              return await withRetry(() => analyzeSingleChunk(chunk, systemInstruction, FALLBACK_MODEL_ID, false), 1, 1000);
-          }
-      }
-  };
-
   try {
-      const chunkPromises = chunksToAnalyze.map((chunk, index) => 
-        analyzeWithFallback(chunk).catch(err => {
-            console.error(`Chunk ${index} failed all tiers:`, err);
-            return null;
-        })
-      );
-
-      const results = await Promise.all(chunkPromises);
-      const validResults = results.filter((r): r is AnalysisResult => r !== null);
-
-      if (validResults.length === 0) {
-          // If EVERYTHING fails, return a synthetic result based on local math so user sees SOMETHING.
-          return {
-             originalScore: 50,
-             plagiarismScore: forensics.sentenceVariance < 4 ? 80 : 20, // Simple guess based on variance
-             critique: "Deep analysis unavailable due to network issues. Basic forensic score provided based on sentence structure.",
-             detectedIssues: ["Network Error", "Basic Scan Only"],
-             paragraphBreakdown: [{
-                 text: text.slice(0, 300) + "...",
-                 riskScore: 50,
-                 matchType: 'MIXED',
-                 evidence: "Analysis limited to client-side forensics."
-             }],
-             sourcesFound: [],
-             forensics
-          };
-      }
-
-      // Aggregate Results
+      const results = await Promise.all(chunksToAnalyze.map(chunk => withRetry(() => analyzeSingleChunk(chunk, systemInstruction, ANALYZE_MODEL_ID, true))));
+      const validResults = results.filter(r => r !== null);
+      
       let totalPlagiarismScore = 0;
       let totalOriginalScore = 0;
       const allIssues = new Set<string>();
@@ -296,381 +175,107 @@ export const analyzeDocument = async (text: string): Promise<AnalysisResult> => 
       validResults.forEach(result => {
           totalPlagiarismScore += result.plagiarismScore;
           totalOriginalScore += result.originalScore;
-          
           if (Array.isArray(result.detectedIssues)) {
-              result.detectedIssues.forEach(issue => allIssues.add(issue));
+              result.detectedIssues.forEach(i => allIssues.add(i));
           }
           if (Array.isArray(result.paragraphBreakdown)) {
-            allParagraphs.push(...result.paragraphBreakdown);
+              allParagraphs.push(...result.paragraphBreakdown);
           }
           if (Array.isArray(result.sourcesFound)) {
               allSources.push(...result.sourcesFound);
           }
-          if (result.critique && result.critique.length > worstCritique.length) {
-              worstCritique = result.critique;
-          }
+          if (result.critique && result.critique.length > worstCritique.length) worstCritique = result.critique;
       });
 
-      // Filter duplicate sources based on URL
       const uniqueSources = allSources.filter((v,i,a)=>a.findIndex(v2=>(v2.url===v.url))===i);
-
-      // Adjust score based on Forensic Math (Hybrid scoring)
-      let calculatedScore = Math.round(totalPlagiarismScore / validResults.length);
-      
-      // --- CALIBRATION: Reduce False Positives ---
-      // If we found REAL search matches, the score should effectively be 100
-      if (uniqueSources.length > 0) {
-          calculatedScore = Math.max(calculatedScore, 85); // Plagiarism is a factual 100% fail
-      } else {
-          // IF NO SEARCH MATCHES (AI CHECK ONLY):
-          // Be more forgiving. Only flag high if we see blatant AI words AND low variance.
-          
-          const hasBadWords = forensics.aiTriggerWordsFound.length > 0;
-          const isRobotic = forensics.sentenceVariance < 4;
-
-          if (!hasBadWords && !isRobotic) {
-              // If it looks human and has no forbidden words, crush the AI score.
-              calculatedScore = Math.min(calculatedScore, 15);
-          } else if (hasBadWords && !isRobotic) {
-              // Has a bad word but good flow? Probably human using academic words.
-              calculatedScore = Math.min(calculatedScore, 40);
-          } else if (!hasBadWords && isRobotic) {
-              // No bad words but very robotic? Suspicious.
-              calculatedScore = Math.max(calculatedScore, 65);
-          }
-          // If hasBadWords AND isRobotic -> keep high score.
-      }
-      
-      calculatedScore = Math.min(100, Math.max(0, calculatedScore));
+      let calculatedScore = Math.round(totalPlagiarismScore / (validResults.length || 1));
+      if (uniqueSources.length > 0) calculatedScore = Math.max(calculatedScore, 85);
+      else if (forensics.sentenceVariance < 4 && forensics.aiTriggerWordsFound.length > 0) calculatedScore = Math.max(calculatedScore, 75);
+      else if (forensics.sentenceVariance > 10) calculatedScore = Math.min(calculatedScore, 20);
 
       return {
-          originalScore: Math.round(totalOriginalScore / validResults.length),
+          originalScore: Math.round(totalOriginalScore / (validResults.length || 1)),
           plagiarismScore: calculatedScore,
           critique: worstCritique || "Analysis complete.",
           detectedIssues: Array.from(allIssues),
           paragraphBreakdown: allParagraphs,
           sourcesFound: uniqueSources,
-          forensics: forensics
+          forensics
       };
-
-  } catch (error) {
-      console.error("Multi-chunk analysis failed:", error);
-      throw error;
-  }
+  } catch (error) { throw error; }
 };
 
-// Updated signature to support optional search (for fallback tiers)
 const analyzeSingleChunk = async (text: string, systemInstruction: string, modelId: string, useSearch: boolean = true): Promise<AnalysisResult> => {
-    // We enable Google Search for detection to find REAL sources
-    // NOTE: When googleSearch is active, we CANNOT use responseSchema or responseMimeType.
-    const tools = useSearch ? [{ googleSearch: {} }] : undefined;
-    
-    const config: any = {
-        systemInstruction,
-        tools
-    };
-
-    // OPTIMIZATION: If we are offline (no tools), force JSON mode for reliability.
-    // This is critical for the Tier 3 fallback to prevent "Analysis failed" errors.
-    if (!useSearch) {
-        config.responseMimeType = "application/json";
-    }
-
     const response = await ai.models.generateContent({
         model: modelId,
         contents: text,
-        config
+        config: { systemInstruction, tools: useSearch ? [{ googleSearch: {} }] : undefined }
     });
-
-    // Parse grounding chunks to get REAL sources
     const sources: SourceMatch[] = [];
     if (response.candidates?.[0]?.groundingMetadata?.groundingChunks) {
         response.candidates[0].groundingMetadata.groundingChunks.forEach((chunk: any) => {
-            if (chunk.web?.uri) {
-                sources.push({
-                    url: chunk.web.uri,
-                    title: chunk.web.title || "External Source",
-                    snippet: "Matched content found via Google Search.",
-                    similarity: 100 // Assumed high if grounded
-                });
-            }
+            if (chunk.web?.uri) sources.push({ url: chunk.web.uri, title: chunk.web.title || "External Source", snippet: "Matched via Search", similarity: 100 });
         });
     }
-
     const result = parseJSONSafely(response.text || '{}');
-    if (!result || typeof result.plagiarismScore === 'undefined') {
-        // Fallback for empty JSON response if model just returns text or invalid JSON
-        if (response.text && response.text.length > 10) {
-             console.warn("Model returned unstructured text, attempting auto-fix");
-             
-             // Try to find a score in the text, otherwise default to neutral
-             const scoreMatch = response.text.match(/plagiarismScore"?:?\s*(\d+)/);
-             const fallbackScore = scoreMatch ? parseInt(scoreMatch[1]) : 50;
-
-             return {
-                 plagiarismScore: fallbackScore,
-                 originalScore: 100 - fallbackScore,
-                 critique: "Automated analysis (Structured parsing failed, but content reviewed).",
-                 detectedIssues: ["Unstructured Response"],
-                 paragraphBreakdown: [{
-                     text: text.substring(0, 200) + "...",
-                     riskScore: fallbackScore,
-                     matchType: 'MIXED',
-                     evidence: "Structure error in AI response, manual review recommended."
-                 }],
-                 sourcesFound: sources,
-                 // Dummy forensics, will be overwritten by client-side math in analyzeDocument
-                 forensics: {
-                    avgSentenceLength: 0,
-                    sentenceVariance: 0,
-                    uniqueWordRatio: 0,
-                    aiTriggerWordsFound: [],
-                    readabilityScore: 0
-                 }
-             };
-        }
-        throw new Error("Invalid JSON or empty response from model");
-    }
-    
-    // Inject real sources into the result
-    return {
-        ...result,
-        sourcesFound: sources.concat(result.sourcesFound || [])
-    } as AnalysisResult;
+    return { ...result, sourcesFound: sources.concat(result.sourcesFound || []), forensics: calculateForensics(text) } as AnalysisResult;
 }
 
 export const fixPlagiarism = async (text: string, currentIssues: string[], options: FixOptions, onProgress?: (percent: number) => void): Promise<FixResult> => {
-  if (!process.env.API_KEY) throw new Error("API Key is missing");
-
-  const { includeCitations, citationStyle, mode, strength, dialect, styleSample } = options;
-
-  const FIX_CHUNK_SIZE = 20000;
-  const chunks = chunkText(text, FIX_CHUNK_SIZE);
-  const BATCH_SIZE = 2; 
-
-  let styleInjection = "";
-  if (styleSample && styleSample.length > 50) {
-      styleInjection = `
-        **CRITICAL: STYLE CLONING ACTIVE**
-        You must mimic the writing style of the following sample EXACTLY. 
-        Analyze its sentence length variance, vocabulary complexity, and tone.
-        
-        [USER STYLE SAMPLE BEGIN]
-        ${styleSample.slice(0, 2000)}
-        [USER STYLE SAMPLE END]
-
-        Do not write like an AI. Write like the author of the sample above.
-      `;
-  }
-
-  const dialectPrompt = dialect === 'US' ? "US English (Color, Center)" 
-      : dialect === 'UK' ? "UK English (Colour, Centre)"
-      : dialect === 'CA' ? "Canadian English"
-      : "Australian English";
-
-  // --- DYNAMIC MODE CONFIGURATION (TUNED FOR ANTI-AI) ---
-  let modePrompt = "";
-  let tempConfig = 1.0;
+  const { includeCitations, citationStyle, mode, strength, dialect } = options;
+  const chunks = chunkText(text, 20000);
+  const systemInstruction = `You are a Ghostwriter. 
+  Banned words to NEVER use: ${BANNED_WORDS.join(", ")}. 
+  Mode: ${mode}. 
+  Dialect: ${dialect}. 
+  You MUST return a JSON object with strictly these fields: 
+  { 
+    "rewrittenText": "the new text", 
+    "newPlagiarismScore": number (0-5), 
+    "improvementsMade": string[] (MUST be an array of strings), 
+    "references": string[] (MUST be an array of strings) 
+  }`;
   
-  switch (mode) {
-      case 'Ghost':
-          // EXTREME STEALTH MODE
-          modePrompt = `
-            **MODE: GHOST (ANTI-TURNITIN PROTOCOL)**
-            Turnitin and GPTZero look for: 
-            1. Uniform sentence lengths (Low Burstiness).
-            2. High usage of common transition words (Moreover, Thus, Therefore).
-            3. Perfect, predictable grammar structure (Subject-Verb-Object).
-
-            **YOUR INSTRUCTIONS TO DEFEAT DETECTION:**
-            1. **Syntax Chaos**: Purposefully vary your sentence structure. Start sentences with Prepositions, Gerunds, or Conjunctions (But, And, So). 
-            2. **Add "Noise"**: Use occasional rhetorical questions, em-dashes for breaks, and idiomatic phrasing that feels "messy" but professional.
-            3. **Fragments**: In rare cases, use a stylistic sentence fragment to break the rhythm.
-            4. **Vocabulary**: Do NOT use "fancy" AI words (e.g., 'tapestry', 'orchestrate'). Use punchy, Anglo-Saxon verbs (e.g., 'fix' instead of 'remediate', 'use' instead of 'leverage').
-          `;
-          tempConfig = 1.55; // Increased temperature for higher perplexity
-          break;
-      case 'Academic':
-          modePrompt = `
-            **MODE: ACADEMIC SCHOLAR**
-            - **Objective**: High-level analysis without the "Robotic AI" feel.
-            - **Style**: Avoid the "In conclusion" or "In this essay" templates. Dive straight into the argument.
-            - **Tone**: Authoritative but nuanced. Use hedging language (e.g., "suggests," "indicates") rather than absolute AI certainty.
-          `;
-          tempConfig = 1.0;
-          break;
-      case 'Creative':
-          modePrompt = `
-            **MODE: CREATIVE STORYTELLER**
-            - **Objective**: High engagement.
-            - **Style**: Show, don't tell. Focus on sensory details. 
-          `;
-          tempConfig = 1.35;
-          break;
-      default: // Standard
-          modePrompt = `
-            **MODE: STANDARD PROFESSIONAL**
-            - **Objective**: Clear, effective communication.
-            - **Style**: Business casual. Avoid "fluff".
-          `;
-          tempConfig = 1.0;
-  }
-
-  const strengthInstruction = strength > 80 
-      ? "REWRITE: AGGRESSIVE. Change 90% of the sentence structures. Merge short sentences. Split long ones. Replace all common AI adjectives." 
-      : strength > 40
-      ? "REWRITE: MODERATE. Rephrase to sound more natural. Increase sentence variety."
-      : "REWRITE: LIGHT. Polish the grammar and remove 'AI' keywords.";
-
-  // --- ENHANCED CITATION LOGIC ---
-  const citationStyleRule = citationStyle || 'APA';
-  let citationInstruction = '';
-  
-  if (includeCitations) {
-      citationInstruction = `
-        **CITATION PROTOCOL (Style: ${citationStyleRule})**:
-        1. **RESEARCH**: Use the 'googleSearch' tool to find REAL, RECENT sources (2020-2025 preferred).
-        2. **INLINE CITATIONS**: You MUST insert citations directly into the text where appropriate.
-           - If APA/Harvard: Use (Author, Year).
-           - If MLA: Use (Author Page).
-           - If IEEE: Use [Number].
-           - If Chicago: Use (Author Year).
-        3. **BIBLIOGRAPHY**: Return a "References" array containing the full formatted citation strings matching the ${citationStyleRule} style guidelines perfectly.
-      `;
-  }
-
-  const systemInstruction = `
-    You are a world-class Ghostwriter and Academic Editor.
-    
-    **CRITICAL: AVOID THESE WORDS (THEY TRIGGER AI DETECTION):**
-    ${BANNED_WORDS.join(", ")}.
-    Also avoid: "moreover", "crucial", "notably", "in conclusion", "furthermore". 
-    Use simpler or more specific alternatives.
-    
-    **INSTRUCTIONS:**
-    1. **Style**: ${styleInjection ? "Follow the USER STYLE SAMPLE provided below." : modePrompt}
-    2. **Dialect**: ${dialectPrompt}
-    3. **Intensity**: ${strengthInstruction}
-    4. **Human Touch**: Add slight nuance, strong opinions, and "messy" human transitions.
-    5. **Formatting**: Return PLAIN TEXT only. Do not use Markdown (no **bold**, no # headings). Use standard spacing.
-    6. **Burstiness**: Ensure sentence lengths vary significantly. Do not use a uniform rhythm.
-
-    ${styleInjection}
-    ${citationInstruction}
-
-    **OUTPUT JSON:**
-    {
-      "rewrittenText": "string (with inline citations if requested)",
-      "newPlagiarismScore": number (0-5),
-      "improvementsMade": ["string"],
-      "references": ["string (Full formatted citation string)"]
-    }
-  `;
-
-  const tools = includeCitations ? [{ googleSearch: {} }] : undefined;
-
   const processChunk = async (chunk: string): Promise<any> => {
-      const requestConfig: any = {
-        systemInstruction,
-        tools,
-        temperature: tempConfig, 
-        topP: 0.98,
-      };
-
-      if (!includeCitations) {
-          // SAFE: Only use schema if tools are NOT present
-          requestConfig.responseMimeType = "application/json";
-          requestConfig.responseSchema = {
-            type: Type.OBJECT,
-            properties: {
-              rewrittenText: { type: Type.STRING },
-              newPlagiarismScore: { type: Type.NUMBER },
-              improvementsMade: { type: Type.ARRAY, items: { type: Type.STRING } },
-              references: { type: Type.ARRAY, items: { type: Type.STRING } }
-            },
-            required: ["rewrittenText", "newPlagiarismScore", "improvementsMade"]
-          };
-      } 
-      // If citations are ON, we use googleSearch tool, so we MUST remove MimeType/Schema
-      // We rely on 'systemInstruction' to enforce JSON structure.
-
-      return withRetry(async () => {
-        try {
-            const response = await ai.models.generateContent({
-                model: FIX_MODEL_ID,
-                contents: chunk,
-                config: requestConfig
-            });
-            return processResponse(response);
-        } catch (error) {
-            console.warn("Primary model failed, attempting Flash fallback...");
-            try {
-                // FALLBACK 1: Flash with Config (Tools if needed)
-                const response = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash',
-                    contents: chunk,
-                    config: { ...requestConfig, temperature: 0.9 }
-                });
-                return processResponse(response);
-            } catch (e) {
-                // FALLBACK 2: Flash WITHOUT Tools (Offline safe mode) if search is breaking it
-                if (tools) {
-                     console.warn("Tools failed. Attempting offline rewrite.");
-                     const offlineConfig = { ...requestConfig, tools: undefined, responseMimeType: "application/json" };
-                     // Add simple schema for robustness in offline mode
-                     offlineConfig.responseSchema = {
-                        type: Type.OBJECT,
-                        properties: {
-                            rewrittenText: { type: Type.STRING },
-                            newPlagiarismScore: { type: Type.NUMBER },
-                            improvementsMade: { type: Type.ARRAY, items: { type: Type.STRING } },
-                            references: { type: Type.ARRAY, items: { type: Type.STRING } }
-                        },
-                        required: ["rewrittenText"]
-                     };
-
-                     const response = await ai.models.generateContent({
-                        model: 'gemini-2.5-flash',
-                        contents: chunk,
-                        config: offlineConfig
-                    });
-                    return processResponse(response);
-                }
-                throw e; 
-            }
-        }
+      const response = await ai.models.generateContent({
+          model: FIX_MODEL_ID,
+          contents: chunk,
+          config: { 
+            systemInstruction, 
+            temperature: mode === 'Ghost' ? 1.5 : 0.9, 
+            tools: includeCitations ? [{ googleSearch: {} }] : undefined
+          }
       });
+      return parseJSONSafely(response.text || '{}');
   };
 
-  const chunkResults: any[] = [];
-  
-  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-      const batch = chunks.slice(i, i + BATCH_SIZE);
-      const results = await Promise.all(batch.map(processChunk).map(p => p.catch(e => {
-          console.error("Chunk failed after retries:", e);
-          return { rewrittenText: "[Error: Could not rewrite this section due to high server load]", newPlagiarismScore: 50 };
-      })));
-      chunkResults.push(...results);
-      
-      // REPORT PROGRESS
-      if (onProgress) {
-          const processedCount = i + batch.length;
-          const progressPercent = Math.min(99, Math.round((processedCount / chunks.length) * 100));
-          onProgress(progressPercent);
-      }
+  const chunkResults = [];
+  for (let i = 0; i < chunks.length; i++) {
+      const res = await processChunk(chunks[i]);
+      chunkResults.push(res);
+      if (onProgress) onProgress(Math.round(((i + 1) / chunks.length) * 100));
   }
 
   const rewrittenChunks: string[] = [];
-  const allImprovements: Set<string> = new Set();
-  const allReferences: Set<string> = new Set();
+  const allImprovements = new Set<string>();
+  const allReferences = new Set<string>();
   let totalScore = 0;
   
   chunkResults.forEach(res => {
       if (res) {
           rewrittenChunks.push(res.rewrittenText || '');
           totalScore += (res.newPlagiarismScore || 0);
-          if (res.improvementsMade) res.improvementsMade.forEach((imp: string) => allImprovements.add(imp));
-          if (res.references) res.references.forEach((ref: string) => allReferences.add(ref));
+          // Defensive check to prevent "forEach is not a function" error
+          if (Array.isArray(res.improvementsMade)) {
+              res.improvementsMade.forEach((imp: any) => {
+                if (typeof imp === 'string') allImprovements.add(imp);
+              });
+          }
+          if (Array.isArray(res.references)) {
+              res.references.forEach((ref: any) => {
+                if (typeof ref === 'string') allReferences.add(ref);
+              });
+          }
       }
   });
 
@@ -682,100 +287,15 @@ export const fixPlagiarism = async (text: string, currentIssues: string[], optio
   };
 };
 
-function processResponse(response: any): any {
-    const chunkResult = parseJSONSafely(response.text || '{}');
-    const refs: string[] = [];
-    
-    const explicitRefs = chunkResult?.references || [];
-    
-    if (explicitRefs.length === 0 && response.candidates?.[0]?.groundingMetadata?.groundingChunks) {
-        response.candidates[0].groundingMetadata.groundingChunks.forEach((chunk: any) => {
-            if (chunk.web?.uri) refs.push(chunk.web.uri); 
-        });
-    }
-
-    if (!chunkResult || !chunkResult.rewrittenText) {
-        if (response.text && response.text.length > 20) {
-            return {
-                rewrittenText: response.text,
-                newPlagiarismScore: 5,
-                improvementsMade: ["Humanized tone"],
-                references: refs
-            };
-        }
-        return null;
-    }
-    
-    if (explicitRefs.length > 0) {
-        // AI generated formatted refs, keep them.
-    } else if (refs.length > 0) {
-        chunkResult.references = refs;
-    }
-    
-    return chunkResult;
-}
-
 export const generatePresentationContent = async (text: string): Promise<SlideContent[]> => {
-    // If text is extremely long, truncate it to a safe context window for summarization
-    const safeText = text.slice(0, 30000); 
-
-    const systemInstruction = `
-        You are an expert Academic Presenter and Research Synthesizer.
-        
-        **TASK:**
-        Convert the provided academic/research text into a structured presentation deck of 8-12 slides.
-        
-        **REQUIREMENTS:**
-        1. **Slide 1**: Title Slide (Title of paper, Subtitle/Author placeholder).
-        2. **Slide 2**: Introduction / Thesis Statement.
-        3. **Middle Slides**: Key Methodology, Results, Analysis, Discussion points.
-        4. **Last Slide**: Conclusion & Future Work.
-        5. **Format & Aesthetics**:
-           - **Title**: Concise and punchy.
-           - **Bullets**: STRICTLY MAX 4 BULLETS PER SLIDE. This enables a modern "Card" visual layout.
-           - **Content**: Each bullet must be a complete, punchy sentence. No long paragraphs.
-           - **Speaker Notes**: A short script (40-60 words) for the presenter to say for that slide.
-        
-        **OUTPUT:**
-        Return strictly a JSON array of objects.
-        JSON Structure:
-        [
-            {
-                "title": "Slide Title",
-                "bullets": ["Point 1", "Point 2"],
-                "speakerNotes": "Script for this slide..."
-            }
-        ]
-    `;
-
-    return withRetry(async () => {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash', // Flash is sufficient and faster for summarization
-            contents: safeText,
-            config: {
-                systemInstruction,
-                temperature: 0.7,
-                responseMimeType: "application/json",
-                responseSchema: {
-                    type: Type.ARRAY,
-                    items: {
-                        type: Type.OBJECT,
-                        properties: {
-                            title: { type: Type.STRING },
-                            bullets: { type: Type.ARRAY, items: { type: Type.STRING } },
-                            speakerNotes: { type: Type.STRING }
-                        },
-                        required: ["title", "bullets", "speakerNotes"]
-                    }
-                }
-            }
-        });
-
-        const parsed = parseJSONSafely(response.text || '[]');
-        if (!Array.isArray(parsed) || parsed.length === 0) {
-            throw new Error("Failed to generate slide content.");
+    const response = await ai.models.generateContent({
+        model: FALLBACK_MODEL_ID,
+        contents: text.slice(0, 30000),
+        config: { 
+          systemInstruction: "Convert text to 8-12 presentation slides. Return JSON array: [{title, bullets, speakerNotes}]", 
+          responseMimeType: "application/json" 
         }
-
-        return parsed as SlideContent[];
     });
+    const parsed = parseJSONSafely(response.text || '[]');
+    return Array.isArray(parsed) ? parsed : [];
 };

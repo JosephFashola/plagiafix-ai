@@ -16,7 +16,7 @@ interface AnalysisViewProps {
   analysis: AnalysisResult;
   fixResult: FixResult | null;
   status: AppStatus;
-  fixProgress?: number; // New Prop for Progress Bar
+  fixProgress?: number; 
   onFix: (options: FixOptions) => void;
   onReset: () => void;
   scoreHistory: number[];
@@ -104,7 +104,6 @@ const HeatmapDisplay: React.FC<{
                     borderClass = "border-green-100";
                 }
 
-                // Determine Match Type Label
                 let riskLabel = "Safe";
                 let matchTypeColor = "text-green-500";
                 
@@ -148,16 +147,15 @@ const HeatmapDisplay: React.FC<{
     );
 };
 
-// Helper to strip Markdown (Robust)
 const cleanMarkdown = (text: string) => {
     if (!text) return "";
     return text
-        .replace(/\*\*(.*?)\*\*/g, '$1') // Bold
-        .replace(/__(.*?)__/g, '$1')     // Bold
-        .replace(/\*(?![*\s])(.*?)\*/g, '$1') // Italic
-        .replace(/_([^_]+)_/g, '$1')     // Italic
-        .replace(/^#+\s/gm, '')          // Headings
-        .replace(/`/g, '');              // Code ticks
+        .replace(/\*\*(.*?)\*\*/g, '$1') 
+        .replace(/__(.*?)__/g, '$1')     
+        .replace(/\*(?![*\s])(.*?)\*/g, '$1') 
+        .replace(/_([^_]+)_/g, '$1')     
+        .replace(/^#+\s/gm, '')          
+        .replace(/`/g, '');              
 };
 
 const TextDisplay: React.FC<{ text: string; className?: string }> = ({ text, className }) => {
@@ -170,7 +168,6 @@ const TextDisplay: React.FC<{ text: string; className?: string }> = ({ text, cla
 };
 
 const DiffDisplay: React.FC<{ oldText: string, newText: string }> = ({ oldText, newText }) => {
-    // Robust access to diffWords
     const diffFn = Diff.diffWords || (Diff as any).default?.diffWords || (window as any).Diff?.diffWords;
     
     if (!diffFn) {
@@ -225,9 +222,6 @@ const ForensicsPanel: React.FC<{ data: ForensicData, sources: any[] }> = ({ data
                         </div>
                     ))}
                 </div>
-                <p className="text-xs text-slate-400 mt-2 text-center">
-                    * Authenticity metrics calculated via Client-Side Forensic Algorithms.
-                </p>
             </div>
 
             {data.aiTriggerWordsFound && data.aiTriggerWordsFound.length > 0 && (
@@ -298,11 +292,6 @@ const ModeCard: React.FC<{
         </div>
         <h4 className={`font-bold text-sm ${selected ? 'text-indigo-900' : 'text-slate-800'}`}>{label}</h4>
         <p className="text-xs text-slate-500 mt-1 leading-snug">{desc}</p>
-        {selected && (
-            <div className="absolute top-3 right-3">
-                <div className="w-2 h-2 bg-indigo-600 rounded-full animate-pulse"></div>
-            </div>
-        )}
     </button>
 );
 
@@ -320,7 +309,6 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState<'clean' | 'diff' | 'forensics'>('clean');
   
-  // Customization Options
   const [mode, setMode] = useState<HumanizeMode>('Standard');
   const [strength, setStrength] = useState<number>(75);
   const [includeCitations, setIncludeCitations] = useState(false);
@@ -329,13 +317,11 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
   const [styleSample, setStyleSample] = useState('');
   const [showStyleInput, setShowStyleInput] = useState(false);
 
-  // Feedback State
   const [rating, setRating] = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [feedbackText, setFeedbackText] = useState('');
   const [isFeedbackSubmitted, setIsFeedbackSubmitted] = useState(false);
 
-  // New: PPTX Generation State
   const [isGeneratingSlides, setIsGeneratingSlides] = useState(false);
 
   useEffect(() => {
@@ -372,10 +358,10 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
       const textToUse = fixResult ? fixResult.rewrittenText : originalText;
       
       try {
-          // 1. Get structured JSON from Gemini
           const slides = await generatePresentationContent(textToUse);
-          // 2. Build PPTX
           await generatePptx(slides, 'PlagiaFix_Presentation');
+          // Track Slide Generation in Telemetry
+          Telemetry.logSlideGeneration(slides.length);
       } catch (e: any) {
           console.error(e);
           toast.error("Could not generate slides. " + e.message);
@@ -384,31 +370,18 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
       }
   };
 
-  const submitFeedback = () => {
-      if (rating === 0) {
-          toast.error("Please select a star rating");
-          return;
-      }
-      Telemetry.logFeedback(rating, feedbackText);
-      setIsFeedbackSubmitted(true);
-      toast.success("Thanks! Your feedback improves our AI.");
-  };
-
   const currentScore = fixResult ? fixResult.newPlagiarismScore : analysis.plagiarismScore;
   const scoreLabel = fixResult ? "Current Risk" : "Detected Risk";
   
-  // Clean text for PDF export (remove simple markdown)
   const cleanTextForPdf = (text: string) => {
       return text
-        .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold
-        .replace(/##\s+/g, '') // Remove H2
-        .replace(/#\s+/g, ''); // Remove H1
+        .replace(/\*\*(.*?)\*\*/g, '$1') 
+        .replace(/##\s+/g, '') 
+        .replace(/#\s+/g, ''); 
   };
 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
-      
-      {/* Top Stats Bar */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <ScoreGauge 
           score={currentScore} 
@@ -422,17 +395,8 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
                  <AlertTriangle className={`h-5 w-5 ${analysis.plagiarismScore > 50 ? 'text-red-500' : 'text-amber-500'}`} />
                  <h3 className="text-lg font-bold text-slate-800">AI Detection & Critique</h3>
              </div>
-             {fixResult && (
-                 <div className="flex items-center gap-2">
-                     <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-full flex items-center gap-1">
-                         <CheckCircle2 className="w-3 h-3" />
-                         Fixed
-                     </span>
-                 </div>
-             )}
           </div>
           <p className="text-slate-600 mb-6 leading-relaxed text-sm md:text-base">{analysis.critique}</p>
-          
           <div className="flex flex-wrap gap-2">
             {analysis.detectedIssues.map((issue, idx) => (
               <span key={idx} className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-100">
@@ -443,320 +407,75 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
         </div>
       </div>
 
-      {/* Social Share Call-to-Action */}
       <SocialShare />
 
-      {/* Main Content Area */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:h-[800px] h-auto">
-        
-        {/* Left: Original with Heatmap & Forensics */}
         <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="bg-slate-50 border-b border-slate-200 p-4 flex justify-between items-center">
              <div className="flex gap-2">
-                 <button 
-                    onClick={() => setViewMode('clean')}
-                    className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${viewMode !== 'forensics' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                 >
-                     Plagiarism Heatmap
-                 </button>
-                 <button 
-                    onClick={() => setViewMode('forensics')}
-                    className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${viewMode === 'forensics' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                 >
-                     <Microscope className="w-3 h-3" />
-                     Forensic DNA
-                 </button>
+                 <button onClick={() => setViewMode('clean')} className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${viewMode !== 'forensics' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Plagiarism Heatmap</button>
+                 <button onClick={() => setViewMode('forensics')} className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${viewMode === 'forensics' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Microscope className="w-3 h-3" />Forensic DNA</button>
              </div>
-             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Original Source</span>
           </div>
-          
           <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-slate-200">
-             {viewMode === 'forensics' ? (
-                 <ForensicsPanel data={analysis.forensics} sources={analysis.sourcesFound} />
-             ) : (
-                 <HeatmapDisplay 
-                    text={originalText} 
-                    paragraphs={analysis.paragraphBreakdown} 
-                 />
-             )}
+             {viewMode === 'forensics' ? <ForensicsPanel data={analysis.forensics} sources={analysis.sourcesFound} /> : <HeatmapDisplay text={originalText} paragraphs={analysis.paragraphBreakdown} />}
           </div>
         </div>
 
-        {/* Right: Actions OR Result */}
         <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden relative">
-           
            {!fixResult ? (
-             /* --- CONFIGURATION MODE --- */
              <div className="flex flex-col h-full">
                 <div className="bg-slate-50 border-b border-slate-200 p-4">
-                    <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                        <Wand2 className="w-4 h-4 text-indigo-500" />
-                        Configure Humanizer Engine
-                    </h3>
+                    <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2"><Wand2 className="w-4 h-4 text-indigo-500" />Configure Humanizer Engine</h3>
                 </div>
-                
                 <div className="flex-1 overflow-y-auto p-6 space-y-8">
-                    {/* Mode Selection */}
                     <div className="grid grid-cols-2 gap-4">
-                        <ModeCard 
-                            mode="Standard" 
-                            selected={mode === 'Standard'} 
-                            onClick={() => setMode('Standard')}
-                            icon={<Zap className="w-5 h-5" />}
-                            label="Standard"
-                            desc="Balanced rewrite. Safe for general use."
-                        />
-                        <ModeCard 
-                            mode="Ghost" 
-                            selected={mode === 'Ghost'} 
-                            onClick={() => setMode('Ghost')}
-                            icon={<Ghost className="w-5 h-5" />}
-                            label="Ghost Mode"
-                            desc="Anti-AI. Bypasses Turnitin & GPTZero."
-                        />
-                        <ModeCard 
-                            mode="Academic" 
-                            selected={mode === 'Academic'} 
-                            onClick={() => setMode('Academic')}
-                            icon={<GraduationCap className="w-5 h-5" />}
-                            label="Scholar"
-                            desc="PhD-level vocabulary. Formal tone."
-                        />
-                        <ModeCard 
-                            mode="Creative" 
-                            selected={mode === 'Creative'} 
-                            onClick={() => setMode('Creative')}
-                            icon={<PenTool className="w-5 h-5" />}
-                            label="Creative"
-                            desc="Engaging, story-like flow."
-                        />
+                        <ModeCard mode="Standard" selected={mode === 'Standard'} onClick={() => setMode('Standard')} icon={<Zap className="w-5 h-5" />} label="Standard" desc="Balanced rewrite." />
+                        <ModeCard mode="Ghost" selected={mode === 'Ghost'} onClick={() => setMode('Ghost')} icon={<Ghost className="w-5 h-5" />} label="Ghost Mode" desc="Anti-AI protocol." />
+                        <ModeCard mode="Academic" selected={mode === 'Academic'} onClick={() => setMode('Academic')} icon={<GraduationCap className="w-5 h-5" />} label="Scholar" desc="Formal academic tone." />
+                        <ModeCard mode="Creative" selected={mode === 'Creative'} onClick={() => setMode('Creative')} icon={<PenTool className="w-5 h-5" />} label="Creative" desc="Engaging flow." />
                     </div>
-
-                    {/* Style Cloning */}
                     <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
                         <div className="flex items-center justify-between cursor-pointer" onClick={() => setShowStyleInput(!showStyleInput)}>
-                            <div className="flex items-center gap-2">
-                                <Fingerprint className="w-5 h-5 text-indigo-600" />
-                                <div>
-                                    <h4 className="font-bold text-sm text-slate-800">Style Cloning (Beta)</h4>
-                                    <p className="text-xs text-slate-500">Mimic your own writing style</p>
-                                </div>
-                            </div>
-                            <div className={`w-10 h-5 rounded-full p-1 transition-colors ${showStyleInput ? 'bg-indigo-600' : 'bg-slate-300'}`}>
-                                <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${showStyleInput ? 'translate-x-5' : ''}`}></div>
-                            </div>
+                            <div className="flex items-center gap-2"><Fingerprint className="w-5 h-5 text-indigo-600" /><div><h4 className="font-bold text-sm text-slate-800">Style Cloning</h4><p className="text-xs text-slate-500">Mimic your writing style</p></div></div>
+                            <div className={`w-10 h-5 rounded-full p-1 transition-colors ${showStyleInput ? 'bg-indigo-600' : 'bg-slate-300'}`}><div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${showStyleInput ? 'translate-x-5' : ''}`}></div></div>
                         </div>
-                        {showStyleInput && (
-                            <div className="mt-4 animate-in fade-in slide-in-from-top-2">
-                                <p className="text-xs text-slate-500 mb-2">Paste a sample of your previous writing (200+ words). The AI will analyze your sentence structure.</p>
-                                <textarea 
-                                    className="w-full h-32 p-3 text-xs bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none"
-                                    placeholder="Paste your sample text here..."
-                                    value={styleSample}
-                                    onChange={(e) => setStyleSample(e.target.value)}
-                                />
-                            </div>
-                        )}
+                        {showStyleInput && <textarea className="w-full h-32 mt-4 p-3 text-xs bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none" placeholder="Paste sample text..." value={styleSample} onChange={(e) => setStyleSample(e.target.value)} />}
                     </div>
-
-                    {/* Advanced Settings */}
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                             <label className="text-sm font-semibold text-slate-700">English Dialect</label>
-                             <div className="flex bg-slate-100 p-1 rounded-lg">
-                                 {(['US', 'UK', 'CA', 'AU'] as const).map((d) => (
-                                     <button
-                                        key={d}
-                                        onClick={() => setDialect(d)}
-                                        className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${dialect === d ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}
-                                     >
-                                         {d}
-                                     </button>
-                                 ))}
-                             </div>
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                            <label className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                                <Quote className="w-4 h-4 text-slate-400" />
-                                Auto-Citations
-                            </label>
-                             <div className="flex items-center gap-2">
-                                {includeCitations && (
-                                    <select 
-                                        className="text-xs bg-white border border-slate-200 rounded py-1 px-2 outline-none focus:border-indigo-500"
-                                        value={citationStyle}
-                                        onChange={(e) => setCitationStyle(e.target.value as CitationStyle)}
-                                    >
-                                        <option value="APA">APA 7</option>
-                                        <option value="MLA">MLA 9</option>
-                                        <option value="Harvard">Harvard</option>
-                                        <option value="Chicago">Chicago</option>
-                                        <option value="IEEE">IEEE</option>
-                                    </select>
-                                )}
-                                <div 
-                                    className={`w-10 h-5 rounded-full p-1 cursor-pointer transition-colors ${includeCitations ? 'bg-indigo-600' : 'bg-slate-300'}`}
-                                    onClick={() => setIncludeCitations(!includeCitations)}
-                                >
-                                    <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${includeCitations ? 'translate-x-5' : ''}`}></div>
-                                </div>
-                             </div>
-                        </div>
-
-                        <div>
-                            <div className="flex justify-between text-xs font-bold text-slate-500 mb-2">
-                                <span>Humanization Strength</span>
-                                <span>{strength}%</span>
-                            </div>
-                            <input 
-                                type="range" 
-                                min="1" 
-                                max="100" 
-                                value={strength} 
-                                onChange={(e) => setStrength(parseInt(e.target.value))}
-                                className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
-                            />
-                        </div>
+                        <div className="flex items-center justify-between"><label className="text-sm font-semibold text-slate-700">English Dialect</label><div className="flex bg-slate-100 p-1 rounded-lg">{(['US', 'UK', 'CA', 'AU'] as const).map((d) => (<button key={d} onClick={() => setDialect(d)} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${dialect === d ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}>{d}</button>))}</div></div>
+                        <div className="flex items-center justify-between"><label className="text-sm font-semibold text-slate-700 flex items-center gap-2"><Quote className="w-4 h-4 text-slate-400" />Auto-Citations</label><div className="flex items-center gap-2">{includeCitations && (<select className="text-xs bg-white border border-slate-200 rounded py-1 px-2 outline-none" value={citationStyle} onChange={(e) => setCitationStyle(e.target.value as CitationStyle)}><option value="APA">APA 7</option><option value="MLA">MLA 9</option><option value="Harvard">Harvard</option><option value="Chicago">Chicago</option><option value="IEEE">IEEE</option></select>)}<div className={`w-10 h-5 rounded-full p-1 cursor-pointer transition-colors ${includeCitations ? 'bg-indigo-600' : 'bg-slate-300'}`} onClick={() => setIncludeCitations(!includeCitations)}><div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${includeCitations ? 'translate-x-5' : ''}`}></div></div></div></div>
+                        <div><div className="flex justify-between text-xs font-bold text-slate-500 mb-2"><span>Humanization Strength</span><span>{strength}%</span></div><input type="range" min="1" max="100" value={strength} onChange={(e) => setStrength(parseInt(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" /></div>
                     </div>
                 </div>
-
                 <div className="p-4 border-t border-slate-100 bg-slate-50">
-                    {/* Progress Bar Display if Fixing */}
-                    {isFixing && (
-                        <div className="mb-3 animate-in fade-in slide-in-from-bottom-2">
-                            <div className="flex justify-between text-xs font-bold text-slate-500 mb-1">
-                                <span>Processing Document...</span>
-                                <span>{fixProgress}%</span>
-                            </div>
-                            <div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden">
-                                <div 
-                                    className="h-full bg-indigo-600 transition-all duration-500 ease-out"
-                                    style={{ width: `${Math.max(5, fixProgress)}%` }}
-                                ></div>
-                            </div>
-                        </div>
-                    )}
-                    
-                    <button
-                        onClick={handleFixClick}
-                        disabled={isFixing}
-                        className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 hover:shadow-indigo-300 transition-all flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
-                    >
-                        {isFixing ? (
-                            <>
-                                <RefreshCw className="w-5 h-5 animate-spin" />
-                                {fixProgress < 99 ? 'Rewriting Chunks...' : 'Finalizing...'}
-                            </>
-                        ) : (
-                            <>
-                                <Sparkles className="w-5 h-5" />
-                                Humanize Text (Fix Plagiarism)
-                            </>
-                        )}
-                    </button>
+                    {isFixing && (<div className="mb-3"><div className="flex justify-between text-xs font-bold text-slate-500 mb-1"><span>Processing...</span><span>{fixProgress}%</span></div><div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden"><div className="h-full bg-indigo-600 transition-all duration-500" style={{ width: `${Math.max(5, fixProgress)}%` }}></div></div></div>)}
+                    <button onClick={handleFixClick} disabled={isFixing} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-70">{isFixing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <><Sparkles className="w-5 h-5" />Humanize Text</>}</button>
                 </div>
              </div>
            ) : (
-             /* --- RESULT MODE --- */
              <div className="flex flex-col h-full">
                  <div className="bg-slate-50 border-b border-slate-200 p-4 flex justify-between items-center">
                     <div className="flex gap-2">
-                        <button 
-                            onClick={() => setViewMode('clean')}
-                            className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${viewMode === 'clean' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                        >
-                            Final Result
-                        </button>
-                        <button 
-                            onClick={() => setViewMode('diff')}
-                            className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${viewMode === 'diff' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                        >
-                            <Split className="w-3 h-3" />
-                            Track Changes
-                        </button>
+                        <button onClick={() => setViewMode('clean')} className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${viewMode === 'clean' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Final Result</button>
+                        <button onClick={() => setViewMode('diff')} className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${viewMode === 'diff' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Split className="w-3 h-3" />Track Changes</button>
                     </div>
                     <div className="flex items-center gap-1">
-                        <button onClick={handleCopy} className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-indigo-600" title="Copy Text">
-                            {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                        </button>
-                        <button onClick={onReset} className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-red-500" title="Reset">
-                            <RefreshCw className="w-4 h-4" />
-                        </button>
+                        <button onClick={handleCopy} className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-indigo-600">{copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}</button>
+                        <button onClick={onReset} className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-red-500"><RefreshCw className="w-4 h-4" /></button>
                     </div>
                  </div>
-
-                 <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-slate-200">
-                     {viewMode === 'diff' ? (
-                         <DiffDisplay oldText={originalText} newText={cleanMarkdown(fixResult.rewrittenText)} />
-                     ) : (
-                         <TextDisplay text={fixResult.rewrittenText} />
-                     )}
-                     
-                     {/* Citation Footer */}
-                     {fixResult.references && fixResult.references.length > 0 && (
-                         <div className="mt-8 pt-8 border-t border-slate-200">
-                             <h4 className="font-bold text-slate-800 mb-4">References</h4>
-                             <ul className="space-y-2 text-sm text-slate-600 pl-4 list-decimal">
-                                 {fixResult.references.map((ref, i) => (
-                                     <li key={i}>{ref}</li>
-                                 ))}
-                             </ul>
-                         </div>
-                     )}
+                 <div className="flex-1 overflow-y-auto p-6">
+                     {viewMode === 'diff' ? <DiffDisplay oldText={originalText} newText={cleanMarkdown(fixResult.rewrittenText)} /> : <TextDisplay text={fixResult.rewrittenText} />}
+                     {fixResult.references && fixResult.references.length > 0 && (<div className="mt-8 pt-8 border-t border-slate-200"><h4 className="font-bold text-slate-800 mb-4">References</h4><ul className="space-y-2 text-sm text-slate-600 pl-4 list-decimal">{fixResult.references.map((ref, i) => (<li key={i}>{ref}</li>))}</ul></div>)}
                  </div>
-
-                 {/* Feedback & Actions */}
                  <div className="p-4 bg-slate-50 border-t border-slate-200 space-y-4">
-                    
                     <div className="grid grid-cols-2 gap-3">
-                        <button 
-                            onClick={() => downloadDocx(fixResult.rewrittenText, 'PlagiaFix_Rewritten', fixResult.references)}
-                            className="flex items-center justify-center gap-2 py-2.5 bg-white border border-slate-300 hover:border-indigo-400 hover:text-indigo-600 text-slate-700 font-bold rounded-lg transition-colors shadow-sm text-sm"
-                        >
-                            <FileText className="w-4 h-4" />
-                            DOCX
-                        </button>
-                        <button 
-                            onClick={() => downloadPdf(cleanTextForPdf(fixResult.rewrittenText), 100 - fixResult.newPlagiarismScore, analysis.plagiarismScore)}
-                            className="flex items-center justify-center gap-2 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-colors shadow-md text-sm"
-                        >
-                            <CheckCircle2 className="w-4 h-4" />
-                            Verify PDF
-                        </button>
+                        <button onClick={() => downloadDocx(fixResult.rewrittenText, 'PlagiaFix_Rewritten', fixResult.references)} className="flex items-center justify-center gap-2 py-2.5 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg text-sm"><FileText className="w-4 h-4" />DOCX</button>
+                        <button onClick={() => downloadPdf(cleanTextForPdf(fixResult.rewrittenText), 100 - fixResult.newPlagiarismScore, analysis.plagiarismScore)} className="flex items-center justify-center gap-2 py-2.5 bg-indigo-600 text-white font-bold rounded-lg text-sm"><CheckCircle2 className="w-4 h-4" />Verify PDF</button>
                     </div>
-
-                    {/* NEW GENERATE PRESENTATION BUTTON */}
-                    <button
-                        onClick={handleGenerateSlides}
-                        disabled={isGeneratingSlides}
-                        className="w-full py-3 bg-gradient-to-r from-orange-500 to-pink-500 hover:from-orange-600 hover:to-pink-600 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm transition-all disabled:opacity-70 disabled:cursor-not-allowed"
-                    >
-                        {isGeneratingSlides ? (
-                            <>
-                                <RefreshCw className="w-4 h-4 animate-spin" />
-                                Designing Slides...
-                            </>
-                        ) : (
-                            <>
-                                <MonitorPlay className="w-4 h-4" />
-                                Generate PowerPoint Slides
-                            </>
-                        )}
-                    </button>
-
-                    {/* Start New Scan Button */}
-                    <button
-                        type="button"
-                        onClick={(e) => {
-                            e.preventDefault();
-                            onReset();
-                        }}
-                        className="w-full py-3 bg-white border-2 border-dashed border-slate-300 hover:border-indigo-400 text-slate-500 hover:text-indigo-600 font-bold rounded-xl transition-all flex items-center justify-center gap-2 text-sm group"
-                    >
-                        <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
-                        Start New Scan
-                    </button>
+                    <button onClick={handleGenerateSlides} disabled={isGeneratingSlides} className="w-full py-3 bg-gradient-to-r from-orange-500 to-pink-500 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm disabled:opacity-70">{isGeneratingSlides ? <RefreshCw className="w-4 h-4 animate-spin" /> : <><MonitorPlay className="w-4 h-4" />Generate PowerPoint Slides</>}</button>
+                    <button type="button" onClick={onReset} className="w-full py-3 bg-white border-2 border-dashed border-slate-300 text-slate-500 font-bold rounded-xl flex items-center justify-center gap-2 text-sm"><RefreshCw className="w-4 h-4" />Start New Scan</button>
                  </div>
              </div>
            )}
