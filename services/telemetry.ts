@@ -1,121 +1,173 @@
 
-import { AppStats, LogEntry, LogType } from '../types';
+import { AppStats, LogEntry, LogType, TimeRange } from '../types';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const HARDCODED_SUPABASE_URL = "https://huugzacwzjqweugfryde.supabase.co";
-const HARDCODED_SUPABASE_KEY = "sb_publishable_CW6V7snqI_or4_L_v23R3w_y98JVQNk";
-
-const STATS_KEY = 'plagiafix_stats';
-const LOGS_KEY = 'plagiafix_logs';
+const SUPABASE_URL = "https://huugzacwzjqweugfryde.supabase.co";
+const SUPABASE_KEY = "sb_publishable_CW6V7snqI_or4_L_v23R3w_y98JVQNk";
 
 let supabase: SupabaseClient | null = null;
 let isSupabaseEnabled = false;
 
-const initSupabase = () => {
-    if (HARDCODED_SUPABASE_URL && HARDCODED_SUPABASE_KEY) {
-        try {
-            supabase = createClient(HARDCODED_SUPABASE_URL, HARDCODED_SUPABASE_KEY);
-            isSupabaseEnabled = true;
-        } catch (e) {
-            isSupabaseEnabled = false;
-        }
+try {
+    if (SUPABASE_URL && SUPABASE_KEY) {
+        supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+        isSupabaseEnabled = true;
     }
-};
-
-initSupabase();
+} catch (e) {
+    console.error("Supabase Initialization Error:", e);
+}
 
 export const Telemetry = {
   isConnected: () => isSupabaseEnabled && !!supabase,
 
+  getGroundTruthStats: async (): Promise<{ stats: AppStats, error?: any }> => {
+    if (!supabase) return { stats: { totalScans: 0, totalFixes: 0, totalErrors: 0, totalVisits: 0, tokensUsedEstimate: 0, lastActive: "" }, error: "Offline" };
+    try {
+        const { data, error } = await supabase.from('plagiafix_logs').select('type');
+        if (error) return { stats: { totalScans: 0, totalFixes: 0, totalErrors: 0, totalVisits: 0, tokensUsedEstimate: 0, lastActive: "" }, error };
+        
+        const counts: Record<string, number> = {};
+        (data || []).forEach(row => {
+            const t = (row.type || 'UNKNOWN').toUpperCase();
+            counts[t] = (counts[t] || 0) + 1;
+        });
+
+        return {
+            stats: {
+                totalScans: counts['SCAN'] || 0,
+                totalFixes: counts['FIX'] || 0,
+                totalErrors: counts['ERROR'] || 0,
+                totalVisits: counts['VISIT'] || 0,
+                tokensUsedEstimate: ((counts['SCAN'] || 0) * 15000) + ((counts['FIX'] || 0) * 25000),
+                lastActive: new Date().toISOString()
+            }
+        };
+    } catch (e: any) { return { stats: { totalScans: 0, totalFixes: 0, totalErrors: 0, totalVisits: 0, tokensUsedEstimate: 0, lastActive: "" }, error: e }; }
+  },
+
+  getDatabaseInventory: async (): Promise<{ totalRows: number, typeBreakdown: Record<string, number>, error?: any }> => {
+      if (!supabase) return { totalRows: 0, typeBreakdown: {}, error: "Offline" };
+      try {
+          const { data, error } = await supabase.from('plagiafix_logs').select('type');
+          if (error) return { totalRows: 0, typeBreakdown: {}, error };
+          const breakdown: Record<string, number> = {};
+          (data || []).forEach(row => {
+              const t = row.type || 'UNDEFINED';
+              breakdown[t] = (breakdown[t] || 0) + 1;
+          });
+          return { totalRows: data?.length || 0, typeBreakdown: breakdown };
+      } catch (e: any) { return { totalRows: 0, typeBreakdown: {}, error: e }; }
+  },
+
+  getRawSample: async (): Promise<{ data: any[], error?: any }> => {
+      if (!supabase) return { data: [], error: "Offline" };
+      try {
+          const { data, error } = await supabase.from('plagiafix_logs').select('*').order('created_at', { ascending: false }).limit(10);
+          return { data: data || [], error };
+      } catch (e: any) { return { data: [], error: e }; }
+  },
+
+  checkDatabaseHealth: async (): Promise<{ status: 'OK' | 'ERROR' | 'RLS_RESTRICTED', latency: number, errorObj?: any }> => {
+    if (!supabase) return { status: 'ERROR', latency: 0 };
+    const start = Date.now();
+    try {
+        const { error } = await supabase.from('plagiafix_logs').select('id').limit(1);
+        if (error) {
+             if (error.code === '42501') return { status: 'RLS_RESTRICTED', latency: Date.now() - start, errorObj: error };
+             return { status: 'ERROR', latency: 0, errorObj: error };
+        }
+        return { status: 'OK', latency: Date.now() - start };
+    } catch (e: any) { return { status: 'ERROR', latency: 0, errorObj: e }; }
+  },
+
   subscribe: (onLogChange: (log: LogEntry) => void) => {
-    if (!isSupabaseEnabled || !supabase) return () => {};
-    const channel = supabase.channel('realtime_admin_v2')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'plagiafix_logs' }, (payload) => {
-            const d = payload.new;
-            onLogChange({ timestamp: new Date(d.created_at).getTime(), type: d.type, details: d.details });
+    if (!supabase) return () => {};
+    const channel = supabase.channel('realtime_v6')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'plagiafix_logs' }, (p) => {
+            onLogChange({ timestamp: Date.now(), type: p.new.type, details: p.new.details });
         })
         .subscribe();
-    return () => { if (supabase) supabase.removeChannel(channel); };
+    return () => { supabase?.removeChannel(channel); };
   },
 
-  getStats: async (strictGlobalMode = false): Promise<AppStats> => {
-    if (isSupabaseEnabled && supabase) {
-        try {
-            const { data, error } = await supabase.from('plagiafix_stats').select('*').eq('id', 1).single();
-            if (!error && data) {
-                return {
-                    totalScans: data.total_scans || 0,
-                    totalFixes: data.total_fixes || 0,
-                    totalErrors: data.total_errors || 0,
-                    totalVisits: data.total_visits || 0, 
-                    totalSlides: data.total_slides || 0,
-                    tokensUsedEstimate: data.tokens_used || 0,
-                    lastActive: data.updated_at,
-                    firstActive: data.created_at
-                };
+  getStats: async (): Promise<AppStats> => (await Telemetry.getGroundTruthStats()).stats,
+
+  getLogs: async (limit: number = 100): Promise<LogEntry[]> => {
+    if (!supabase) return [];
+    try {
+        const { data } = await supabase.from('plagiafix_logs').select('*').order('created_at', { ascending: false }).limit(limit);
+        return (data || []).map(d => ({ timestamp: new Date(d.created_at).getTime(), type: d.type, details: d.details }));
+    } catch (e) { return []; }
+  },
+
+  getChartData: async (range: TimeRange): Promise<any[]> => {
+    if (!supabase) return [];
+    try {
+        const { data } = await supabase.from('plagiafix_logs').select('created_at, type');
+        if (!data) return [];
+        const buckets: Record<string, any> = {};
+        data.forEach(log => {
+            const key = log.created_at.split('T')[0];
+            if (!buckets[key]) buckets[key] = { name: key, scans: 0, fixes: 0 };
+            if (log.type === 'SCAN') buckets[key].scans++;
+            if (log.type === 'FIX') buckets[key].fixes++;
+        });
+        return Object.values(buckets).sort((a, b) => a.name.localeCompare(b.name));
+    } catch (e) { return []; }
+  },
+
+  getCountryTraffic: async (): Promise<any[]> => {
+    if (!supabase) return [];
+    try {
+        const { data, error } = await supabase.from('plagiafix_logs').select('details').eq('type', 'VISIT');
+        if (error || !data) return [];
+        const countries: Record<string, number> = {};
+        data.forEach(log => {
+            const match = log.details.match(/\[([A-Z]{2})\]/);
+            if (match) {
+                const code = match[1];
+                countries[code] = (countries[code] || 0) + 1;
             }
-        } catch (e) {}
+        });
+        return Object.entries(countries)
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value);
+    } catch (e) { return []; }
+  },
+
+  addLogLocal: async (type: string, details: string) => {
+    if (supabase) await supabase.from('plagiafix_logs').insert({ type: type.toUpperCase(), details });
+  },
+
+  seedDemoData: async () => {
+    if (supabase) {
+        const mockCountries = ['US', 'US', 'US', 'GB', 'GB', 'CA', 'AU', 'DE', 'FR', 'IN', 'JP', 'BR', 'ZA', 'SG'];
+        // Seed 30 visits with random distribution
+        for(let i=0; i<30; i++) {
+            const randomCountry = mockCountries[Math.floor(Math.random() * mockCountries.length)];
+            await Telemetry.addLogLocal('VISIT', `Simulation Session [${randomCountry}]`);
+        }
+        // Seed some activity
+        for(let i=0; i<8; i++) await Telemetry.addLogLocal('SCAN', 'Historical Scan Simulation');
+        for(let i=0; i<5; i++) await Telemetry.addLogLocal('FIX', 'Historical Fix Simulation');
     }
-    return JSON.parse(localStorage.getItem(STATS_KEY) || '{"totalScans":0,"totalFixes":0,"totalErrors":0,"totalVisits":0,"totalSlides":0,"tokensUsedEstimate":0,"lastActive":""}');
   },
 
-  getLogs: async (limit = 100): Promise<LogEntry[]> => {
-    if (isSupabaseEnabled && supabase) {
-        try {
-            const { data, error } = await supabase.from('plagiafix_logs').select('*').order('created_at', { ascending: false }).limit(limit);
-            if (!error && data) return data.map((d: any) => ({ timestamp: new Date(d.created_at).getTime(), type: d.type as LogType, details: d.details }));
-        } catch (e) {}
-    }
-    return JSON.parse(localStorage.getItem(LOGS_KEY) || '[]');
-  },
-
-  updateSupabaseStats: async (updates: any) => {
-      if (!isSupabaseEnabled || !supabase) return;
-      try {
-        const { data: current } = await supabase.from('plagiafix_stats').select('*').eq('id', 1).single();
-        const newStats = {
-            total_scans: (current?.total_scans || 0) + (updates.total_scans || 0),
-            total_fixes: (current?.total_fixes || 0) + (updates.total_fixes || 0),
-            total_errors: (current?.total_errors || 0) + (updates.total_errors || 0),
-            total_slides: (current?.total_slides || 0) + (updates.total_slides || 0),
-            total_visits: (current?.total_visits || 0) + (updates.total_visits || 0),
-            tokens_used: (current?.tokens_used || 0) + (updates.tokens_used || 0),
-            updated_at: new Date().toISOString()
-        };
-        if (current) await supabase.from('plagiafix_stats').update(newStats).eq('id', 1);
-        else await supabase.from('plagiafix_stats').insert({ id: 1, ...newStats });
-      } catch (e) {}
-  },
-
-  addLogLocal: async (type: LogType, details: string) => {
-    if (isSupabaseEnabled && supabase) {
-        await supabase.from('plagiafix_logs').insert({ type, details });
-    }
-    const logs = JSON.parse(localStorage.getItem(LOGS_KEY) || '[]');
-    localStorage.setItem(LOGS_KEY, JSON.stringify([{ timestamp: Date.now(), type, details }, ...logs].slice(0, 100)));
-  },
-
+  clearLogs: async () => { if (supabase) await supabase.from('plagiafix_logs').delete().neq('id', 0); },
+  
   logVisit: async () => { 
-      Telemetry.addLogLocal('VISIT', 'New User session');
-      Telemetry.updateSupabaseStats({ total_visits: 1 });
+    let countryCode = 'Unknown';
+    try {
+        const response = await fetch('https://ipapi.co/json/');
+        const data = await response.json();
+        if (data.country_code) countryCode = data.country_code;
+    } catch (e) {
+        console.warn("Geo-Location lookup skipped or blocked.");
+    }
+    await Telemetry.addLogLocal('VISIT', `New Session [${countryCode}]`); 
   },
-  logScan: async (len: number) => { 
-      const tokens = Math.ceil(len / 4);
-      Telemetry.addLogLocal('SCAN', `Scanned ${len} chars`);
-      Telemetry.updateSupabaseStats({ total_scans: 1, tokens_used: tokens });
-  },
-  logFix: async (len: number) => { 
-      const tokens = Math.ceil(len / 3);
-      Telemetry.addLogLocal('FIX', `Fixed ${len} chars`);
-      Telemetry.updateSupabaseStats({ total_fixes: 1, tokens_used: tokens });
-  },
-  logSlideGeneration: async (count: number) => { 
-      const tokens = count * 1500;
-      Telemetry.addLogLocal('SLIDE', `Generated PPTX Deck (${count} slides)`);
-      Telemetry.updateSupabaseStats({ total_slides: 1, tokens_used: tokens });
-  },
-  logError: async (msg: string) => { 
-      Telemetry.addLogLocal('ERROR', msg);
-      Telemetry.updateSupabaseStats({ total_errors: 1 });
-  }
+  
+  logScan: async (len: number) => { Telemetry.addLogLocal('SCAN', `Scan: ${len} chars`); },
+  logFix: async (len: number) => { Telemetry.addLogLocal('FIX', `Fix: ${len} chars`); },
+  logError: async (msg: string) => { Telemetry.addLogLocal('ERROR', msg); }
 };

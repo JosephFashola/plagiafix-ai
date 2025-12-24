@@ -1,11 +1,16 @@
 
-import React, { useState, useEffect } from 'react';
-import { AnalysisResult, AppStatus, FixResult, FixOptions, HumanizeMode, ParagraphAnalysis, CitationStyle, ForensicData } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { AnalysisResult, AppStatus, FixResult, FixOptions, HumanizeMode, CitationStyle, SourceMatch, ParagraphAnalysis } from '../types';
 import ScoreGauge from './ScoreGauge';
-import { Wand2, AlertTriangle, CheckCircle2, ArrowRight, Copy, Check, Eye, BookOpen, FileText, Star, Sparkles, Flame, Zap, Fingerprint, User, Quote, Share2, Twitter, Linkedin, Facebook, Microscope, Search, BarChart3, ExternalLink, Download, Split, Ghost, GraduationCap, PenTool, RefreshCw, X, ChevronDown, ChevronUp, MonitorPlay } from 'lucide-react';
+import { 
+  Copy, Sparkles, RefreshCw, Download, 
+  Zap, ExternalLink, Link2, BookOpen, 
+  PlusCircle, AlertTriangle, Settings, Layout, Map, FileCheck2, FileText, NotebookTabs, MonitorPlay,
+  Globe, Quote, Sliders, ChevronDown
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { downloadDocx, downloadPdf } from '../services/exportService';
-import { generatePresentationContent } from '../services/geminiService';
+import { generatePresentationContent, refineTextSegment, generateStudyGuide, generateSummaryMemo } from '../services/geminiService';
 import { generatePptx } from '../services/slideGenerator';
 import { Telemetry } from '../services/telemetry';
 // @ts-ignore
@@ -16,469 +21,354 @@ interface AnalysisViewProps {
   analysis: AnalysisResult;
   fixResult: FixResult | null;
   status: AppStatus;
-  fixProgress?: number; 
+  fixProgress?: number;
   onFix: (options: FixOptions) => void;
+  onUpdateText: (newText: string) => void;
   onReset: () => void;
   scoreHistory: number[];
 }
 
-const SocialShare: React.FC = () => {
-    const shareUrl = window.location.href;
-    const shareText = "I just humanized my document and bypassed AI detection using PlagiaFix! 🚀 It's free and insanely powerful.";
-    
-    const handleShare = (platform: 'twitter' | 'linkedin' | 'facebook' | 'whatsapp') => {
-        let url = '';
-        switch(platform) {
-            case 'twitter':
-                url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`;
-                break;
-            case 'linkedin':
-                url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
-                break;
-            case 'facebook':
-                url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
-                break;
-            case 'whatsapp':
-                url = `https://wa.me/?text=${encodeURIComponent(shareText + ' ' + shareUrl)}`;
-                break;
-        }
-        window.open(url, '_blank', 'width=600,height=400');
-        toast.success("Thanks for sharing!", { icon: '💖' });
-        Telemetry.addLogLocal('SHARE', platform);
-    };
-
-    return (
-        <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl p-6 text-white shadow-lg relative overflow-hidden group">
-            <div className="absolute top-0 right-0 -mt-4 -mr-4 bg-white/10 w-24 h-24 rounded-full blur-xl group-hover:scale-150 transition-transform duration-700"></div>
-            
-            <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-4">
-                <div className="text-center md:text-left">
-                    <h4 className="font-bold text-lg flex items-center justify-center md:justify-start gap-2">
-                        <Share2 className="w-5 h-5" />
-                        Help us keep PlagiaFix Free!
-                    </h4>
-                    <p className="text-indigo-100 text-sm mt-1">Found this tool useful? A quick share helps us stay alive.</p>
-                </div>
-                
-                <div className="flex gap-3">
-                    <button onClick={() => handleShare('twitter')} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors backdrop-blur-sm" title="Share on X / Twitter">
-                        <Twitter className="w-5 h-5 text-white" />
-                    </button>
-                    <button onClick={() => handleShare('linkedin')} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors backdrop-blur-sm" title="Share on LinkedIn">
-                        <Linkedin className="w-5 h-5 text-white" />
-                    </button>
-                    <button onClick={() => handleShare('facebook')} className="p-2 bg-white/10 hover:bg-white/20 rounded-lg transition-colors backdrop-blur-sm" title="Share on Facebook">
-                        <Facebook className="w-5 h-5 text-white" />
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-const HeatmapDisplay: React.FC<{ 
-    text: string, 
-    paragraphs: ParagraphAnalysis[],
-    className?: string 
-}> = ({ text, paragraphs, className }) => {
-    const splitOriginal = text.split(/\n\n/);
-    
-    return (
-        <div className={`space-y-4 font-serif text-slate-700 leading-relaxed ${className}`}>
-            {splitOriginal.map((para, idx) => {
-                if (!para.trim()) return null;
-                const riskData = paragraphs && paragraphs[idx] ? paragraphs[idx] : null;
-                const score = riskData ? riskData.riskScore : 0;
-                
-                let bgClass = "bg-transparent";
-                let borderClass = "border-transparent";
-                
-                if (score > 80) {
-                    bgClass = "bg-red-100/50 hover:bg-red-100";
-                    borderClass = "border-red-200";
-                } else if (score > 50) {
-                    bgClass = "bg-amber-50 hover:bg-amber-100";
-                    borderClass = "border-amber-200";
-                } else if (score < 20) {
-                    bgClass = "bg-green-50/30";
-                    borderClass = "border-green-100";
-                }
-
-                let riskLabel = "Safe";
-                let matchTypeColor = "text-green-500";
-                
-                if (riskData?.matchType === 'PLAGIARISM') {
-                    riskLabel = "PLAGIARISM MATCH";
-                    matchTypeColor = "text-red-600";
-                } else if (riskData?.matchType === 'AI') {
-                    riskLabel = "AI PATTERN DETECTED";
-                    matchTypeColor = "text-amber-600";
-                } else if (score > 50) {
-                    riskLabel = "SUSPICIOUS";
-                    matchTypeColor = "text-amber-600";
-                }
-
-                return (
-                    <div key={idx} className={`p-2 rounded-lg border transition-colors ${bgClass} ${borderClass} group relative`}>
-                        <p>{para}</p>
-                        {score > 40 && (
-                            <div className="absolute top-0 right-0 -mt-2 -mr-2 opacity-0 group-hover:opacity-100 transition-opacity bg-white border border-slate-200 shadow-xl rounded-lg p-3 z-20 w-64 pointer-events-none md:pointer-events-auto">
-                                <div className="flex items-center justify-between mb-1">
-                                     <span className={`text-[10px] font-extrabold uppercase ${matchTypeColor}`}>{riskLabel}</span>
-                                     <span className="text-xs font-bold text-slate-700">{score}% Risk</span>
-                                </div>
-                                {riskData?.evidence && (
-                                    <p className="text-xs text-slate-500 italic mb-1">
-                                        "{riskData.evidence}"
-                                    </p>
-                                )}
-                                {riskData?.matchType === 'PLAGIARISM' && (
-                                    <div className="flex items-center gap-1 text-[10px] text-blue-500 mt-1">
-                                        <ExternalLink className="w-3 h-3" />
-                                        Found on Google Search
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                );
-            })}
-        </div>
-    );
-};
-
-const cleanMarkdown = (text: string) => {
-    if (!text) return "";
-    return text
-        .replace(/\*\*(.*?)\*\*/g, '$1') 
-        .replace(/__(.*?)__/g, '$1')     
-        .replace(/\*(?![*\s])(.*?)\*/g, '$1') 
-        .replace(/_([^_]+)_/g, '$1')     
-        .replace(/^#+\s/gm, '')          
-        .replace(/`/g, '');              
-};
-
-const TextDisplay: React.FC<{ text: string; className?: string }> = ({ text, className }) => {
-    const cleaned = cleanMarkdown(text);
-    return (
-        <div className={`whitespace-pre-wrap leading-relaxed text-sm md:text-base font-serif text-slate-700 ${className}`}>
-            {cleaned}
-        </div>
-    );
-};
-
-const DiffDisplay: React.FC<{ oldText: string, newText: string }> = ({ oldText, newText }) => {
-    const diffFn = Diff.diffWords || (Diff as any).default?.diffWords || (window as any).Diff?.diffWords;
-    
-    if (!diffFn) {
-        return <div className="text-red-500">Diff library error. Please refresh.</div>;
-    }
-
-    const diff = diffFn(oldText, newText);
-    return (
-        <div className="whitespace-pre-wrap leading-relaxed text-sm md:text-base font-serif text-slate-700">
-            {diff.map((part: any, index: number) => {
-                const color = part.added ? 'bg-green-100 text-green-800 border-b-2 border-green-300' :
-                              part.removed ? 'bg-red-100 text-red-800 line-through decoration-red-500 opacity-60' : 
-                              'text-slate-600';
-                return (
-                    <span key={index} className={`${color} px-0.5 rounded-sm transition-colors`}>
-                        {part.value}
-                    </span>
-                );
-            })}
-        </div>
-    );
-};
-
-const ForensicsPanel: React.FC<{ data: ForensicData, sources: any[] }> = ({ data, sources }) => {
-    if (!data) return null;
-
-    const stats = [
-        { label: "Sentence Variance", value: data.sentenceVariance, ideal: "> 8.0", status: data.sentenceVariance > 8 ? "Human" : "Robotic" },
-        { label: "Complexity Ratio", value: data.uniqueWordRatio, ideal: "> 0.4", status: data.uniqueWordRatio > 0.4 ? "Rich" : "Repetitive" },
-        { label: "Readability", value: data.readabilityScore, ideal: "varies", status: "Index" },
-    ];
-
-    return (
-        <div className="p-6 space-y-8 animate-in fade-in duration-500">
-            <div>
-                <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                    <BarChart3 className="w-5 h-5 text-indigo-600" />
-                    Stylometric DNA
-                </h4>
-                <div className="grid grid-cols-3 gap-4">
-                    {stats.map((stat, i) => (
-                        <div key={i} className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                            <p className="text-[10px] text-slate-500 font-bold uppercase">{stat.label}</p>
-                            <p className="text-xl font-bold text-slate-800 mt-1">{stat.value}</p>
-                            <div className="flex justify-between items-center mt-2">
-                                <span className="text-[10px] text-slate-400">Goal: {stat.ideal}</span>
-                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                                    stat.status === 'Human' || stat.status === 'Rich' ? 'bg-green-100 text-green-700' : 
-                                    stat.status === 'Robotic' || stat.status === 'Repetitive' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
-                                }`}>{stat.status}</span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {data.aiTriggerWordsFound && data.aiTriggerWordsFound.length > 0 && (
-                <div>
-                     <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2 text-sm">
-                        <AlertTriangle className="w-4 h-4 text-amber-500" />
-                        AI Fingerprints Detected
-                    </h4>
-                    <div className="flex flex-wrap gap-2">
-                        {data.aiTriggerWordsFound.map((word, i) => (
-                            <span key={i} className="px-2 py-1 bg-amber-50 text-amber-700 text-xs font-semibold rounded border border-amber-100 line-through decoration-amber-500/50">
-                                {word}
-                            </span>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-            <div>
-                 <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                    <Search className="w-5 h-5 text-indigo-600" />
-                    Detected Sources
-                </h4>
-                {sources && sources.length > 0 ? (
-                    <div className="space-y-3">
-                        {sources.map((source, i) => (
-                            <a href={source.url} target="_blank" rel="noopener noreferrer" key={i} className="block p-3 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 rounded-lg transition-all group">
-                                <div className="flex items-start justify-between">
-                                    <div className="flex-1 min-w-0">
-                                        <h5 className="text-sm font-bold text-indigo-700 truncate">{source.title}</h5>
-                                        <p className="text-xs text-slate-500 mt-1 truncate">{source.url}</p>
-                                    </div>
-                                    <ExternalLink className="w-4 h-4 text-slate-400 group-hover:text-indigo-500 flex-shrink-0 ml-2" />
-                                </div>
-                            </a>
-                        ))}
-                    </div>
-                ) : (
-                    <div className="bg-green-50 border border-green-100 rounded-lg p-4 flex items-center gap-3">
-                        <CheckCircle2 className="w-6 h-6 text-green-500" />
-                        <div>
-                            <p className="text-sm font-bold text-green-800">No Plagiarism Found</p>
-                            <p className="text-xs text-green-600">Google Search found no exact matches.</p>
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
-
-const ModeCard: React.FC<{ 
-    mode: HumanizeMode, 
-    selected: boolean, 
-    onClick: () => void, 
-    icon: React.ReactNode, 
-    label: string, 
-    desc: string 
-}> = ({ mode, selected, onClick, icon, label, desc }) => (
-    <button
-        onClick={onClick}
-        className={`relative flex flex-col items-start p-3 rounded-xl border text-left transition-all duration-300 w-full hover:shadow-md h-full
-        ${selected ? 'border-indigo-600 bg-indigo-50/50 shadow-indigo-100 ring-1 ring-indigo-500' : 'border-slate-200 bg-white hover:border-indigo-300 hover:bg-slate-50'}
-        `}
-    >
-        <div className={`p-2 rounded-lg mb-2 ${selected ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
-            {icon}
-        </div>
-        <h4 className={`font-bold text-sm ${selected ? 'text-indigo-900' : 'text-slate-800'}`}>{label}</h4>
-        <p className="text-xs text-slate-500 mt-1 leading-snug">{desc}</p>
-    </button>
+const Heatmap: React.FC<{ paragraphs: ParagraphAnalysis[], onScrollTo: (index: number) => void }> = ({ paragraphs, onScrollTo }) => (
+  <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4">
+    <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest mb-4 flex items-center gap-2">
+      <Map className="w-3 h-3" /> Risk Heatmap
+    </h4>
+    <div className="flex flex-wrap gap-1">
+      {paragraphs.map((p, i) => {
+        const score = p.riskScore || 0;
+        const color = score > 60 ? 'bg-rose-500' : score > 30 ? 'bg-amber-400' : 'bg-emerald-400';
+        return (
+          <button
+            key={i}
+            onClick={() => onScrollTo(i)}
+            className={`w-3 h-3 rounded-sm ${color} hover:scale-125 transition-all opacity-80`}
+            title={`Para ${i+1}: ${score}% Risk`}
+          />
+        );
+      })}
+    </div>
+  </div>
 );
 
 const AnalysisView: React.FC<AnalysisViewProps> = ({ 
-  originalText, 
-  analysis, 
-  fixResult, 
-  status, 
-  fixProgress = 0,
-  onFix,
-  onReset,
-  scoreHistory
+  originalText, analysis, fixResult, status, onFix, onUpdateText, onReset, scoreHistory
 }) => {
   const isFixing = status === AppStatus.FIXING;
-  const [copied, setCopied] = useState(false);
-  const [viewMode, setViewMode] = useState<'clean' | 'diff' | 'forensics'>('clean');
-  
+  const [viewMode, setViewMode] = useState<'clean' | 'diff'>('clean');
   const [mode, setMode] = useState<HumanizeMode>('Standard');
-  const [strength, setStrength] = useState<number>(75);
   const [includeCitations, setIncludeCitations] = useState(false);
   const [citationStyle, setCitationStyle] = useState<CitationStyle>('APA');
-  const [dialect, setDialect] = useState<FixOptions['dialect']>('US');
-  const [styleSample, setStyleSample] = useState('');
-  const [showStyleInput, setShowStyleInput] = useState(false);
+  const [dialect, setDialect] = useState<'US' | 'UK' | 'CA' | 'AU'>('US');
+  const [strength, setStrength] = useState(85);
+  const [selection, setSelection] = useState<{ text: string; rect: DOMRect | null }>({ text: '', rect: null });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const paraRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  const [rating, setRating] = useState(0);
-  const [hoverRating, setHoverRating] = useState(0);
-  const [feedbackText, setFeedbackText] = useState('');
-  const [isFeedbackSubmitted, setIsFeedbackSubmitted] = useState(false);
+  const currentScore = fixResult ? fixResult.newPlagiarismScore : analysis.plagiarismScore;
 
-  const [isGeneratingSlides, setIsGeneratingSlides] = useState(false);
-
-  useEffect(() => {
-    setRating(0);
-    setHoverRating(0);
-    setFeedbackText('');
-    setIsFeedbackSubmitted(false);
+  const scrollToPara = (index: number) => {
     setViewMode('clean');
-  }, [fixResult]);
+    setTimeout(() => {
+        paraRefs.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
+  };
 
-  const handleCopy = () => {
-    if (fixResult?.rewrittenText) {
-      navigator.clipboard.writeText(fixResult.rewrittenText);
-      setCopied(true);
-      toast.success('Humanized text copied!');
-      setTimeout(() => setCopied(false), 2000);
+  const handleRefine = async (selectedText: string) => {
+    const loading = toast.loading("Refining neural segment...");
+    setSelection({ text: '', rect: null });
+    try {
+      const currentText = fixResult ? fixResult.rewrittenText : originalText;
+      const refined = await refineTextSegment(currentText, selectedText, mode);
+      if (fixResult) {
+        const updatedText = fixResult.rewrittenText.replace(selectedText, refined);
+        onUpdateText(updatedText);
+        toast.success("Humanized!");
+        Telemetry.addLogLocal('REFINE', `Segment refined`);
+      }
+    } catch (e) {
+      toast.error("Refinement failed.");
+    } finally {
+      toast.dismiss(loading);
     }
   };
 
-  const handleFixClick = () => {
-      onFix({ 
-          includeCitations,
-          citationStyle: includeCitations ? citationStyle : undefined,
-          mode,
-          strength,
-          dialect,
-          styleSample: showStyleInput ? styleSample : undefined
-      });
+  const handleMouseUp = () => {
+    const sel = window.getSelection();
+    if (sel && sel.toString().trim().length > 15 && containerRef.current) {
+      const rect = sel.getRangeAt(0).getBoundingClientRect();
+      setSelection({ text: sel.toString(), rect });
+    } else {
+      setSelection({ text: '', rect: null });
+    }
   };
 
-  const handleGenerateSlides = async () => {
-      if (!fixResult && !originalText) return;
-      setIsGeneratingSlides(true);
-      const textToUse = fixResult ? fixResult.rewrittenText : originalText;
-      
-      try {
-          const slides = await generatePresentationContent(textToUse);
-          await generatePptx(slides, 'PlagiaFix_Presentation');
-          // Track Slide Generation in Telemetry
-          Telemetry.logSlideGeneration(slides.length);
-      } catch (e: any) {
-          console.error(e);
-          toast.error("Could not generate slides. " + e.message);
-      } finally {
-          setIsGeneratingSlides(false);
-      }
+  const handleMemoGenerate = async () => {
+    const loading = toast.loading("Generating Memo...");
+    try {
+        const memo = await generateSummaryMemo(fixResult?.rewrittenText || originalText);
+        const content = `SUBJECT: ${memo.subject}\nTO: ${memo.to}\nFROM: ${memo.from}\n\nEXECUTIVE SUMMARY:\n${memo.executiveSummary}`;
+        await downloadDocx(content, 'Executive_Memo');
+    } catch (e) {
+        toast.error("Memo failed.");
+    } finally {
+        toast.dismiss(loading);
+    }
   };
 
-  const currentScore = fixResult ? fixResult.newPlagiarismScore : analysis.plagiarismScore;
-  const scoreLabel = fixResult ? "Current Risk" : "Detected Risk";
-  
-  const cleanTextForPdf = (text: string) => {
-      return text
-        .replace(/\*\*(.*?)\*\*/g, '$1') 
-        .replace(/##\s+/g, '') 
-        .replace(/#\s+/g, ''); 
+  const handleStudyGuideGenerate = async () => {
+    const loading = toast.loading("Building Study Guide...");
+    try {
+        const guide = await generateStudyGuide(fixResult?.rewrittenText || originalText);
+        let content = `# ${guide.title}\n\n## Summary\n${guide.summary}\n\n## Key Concepts\n`;
+        guide.keyConcepts.forEach(c => content += `**${c.term}**: ${c.definition}\n\n`);
+        await downloadDocx(content, 'Study_Guide');
+    } catch (e) {
+        toast.error("Guide failed.");
+    } finally {
+        toast.dismiss(loading);
+    }
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500 pb-20">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <ScoreGauge 
-          score={currentScore} 
-          label={scoreLabel} 
-          history={scoreHistory}
-        />
-        
-        <div className="md:col-span-3 bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-center">
-          <div className="flex items-center justify-between mb-3">
-             <div className="flex items-center gap-2">
-                 <AlertTriangle className={`h-5 w-5 ${analysis.plagiarismScore > 50 ? 'text-red-500' : 'text-amber-500'}`} />
-                 <h3 className="text-lg font-bold text-slate-800">AI Detection & Critique</h3>
-             </div>
+    <div className="max-w-[1400px] mx-auto px-4 pb-20 font-sans">
+      {selection.rect && viewMode === 'clean' && fixResult && (
+        <div 
+          className="fixed z-[100] animate-in fade-in zoom-in"
+          style={{ top: selection.rect.top - 54, left: selection.rect.left + (selection.rect.width / 2) - 75 }}
+        >
+          <button onClick={() => handleRefine(selection.text)} className="px-4 py-2 bg-slate-900 text-white rounded-full shadow-2xl border border-white/20 text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600">
+            Neural Refine
+          </button>
+        </div>
+      )}
+
+      <div className="flex flex-col lg:flex-row gap-6 mb-8">
+        <div className="flex-1 bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-200 flex items-center gap-8">
+          <ScoreGauge score={currentScore} label={fixResult ? "Stealth Score" : "Forensic Risk"} history={scoreHistory} />
+          <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-6 border-l border-slate-100 pl-8">
+            <div>
+              <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Matches</p>
+              <span className="text-lg font-black text-slate-900">{analysis.sourcesFound.length} Sources</span>
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase text-slate-400 mb-2">AI Check</p>
+              <span className="text-lg font-black text-slate-900">{analysis.forensics.uniqueWordRatio < 0.45 ? 'High' : 'Low'}</span>
+            </div>
+            <div className="hidden md:block">
+              <p className="text-[10px] font-black uppercase text-slate-400 mb-2">Readability</p>
+              <span className="text-lg font-black text-slate-900">Grade {Math.round(analysis.forensics.readabilityScore)}</span>
+            </div>
           </div>
-          <p className="text-slate-600 mb-6 leading-relaxed text-sm md:text-base">{analysis.critique}</p>
-          <div className="flex flex-wrap gap-2">
-            {analysis.detectedIssues.map((issue, idx) => (
-              <span key={idx} className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-100">
-                {issue}
-              </span>
-            ))}
-          </div>
+        </div>
+        <div className="flex flex-col gap-3">
+          <button onClick={() => downloadPdf(fixResult?.rewrittenText || originalText, 100 - currentScore, analysis.plagiarismScore)} className="px-8 py-5 bg-slate-900 text-white rounded-3xl text-xs font-black uppercase tracking-widest hover:bg-slate-800 transition-all">
+            Export Report
+          </button>
+          <button onClick={onReset} className="px-8 py-5 bg-white border border-slate-200 text-slate-600 rounded-3xl text-xs font-black uppercase tracking-widest hover:bg-slate-50 transition-all">
+            New Analysis
+          </button>
         </div>
       </div>
 
-      <SocialShare />
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <div className="lg:col-span-4 space-y-6">
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm space-y-8">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-black text-slate-900 uppercase flex items-center gap-2">
+                <Settings className="w-4 h-4 text-indigo-500" /> Humanizer Engine
+              </h3>
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[8px] font-black uppercase">
+                <Sparkles className="w-2.5 h-2.5" /> v2.4 Native
+              </div>
+            </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:h-[800px] h-auto">
-        <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="bg-slate-50 border-b border-slate-200 p-4 flex justify-between items-center">
-             <div className="flex gap-2">
-                 <button onClick={() => setViewMode('clean')} className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${viewMode !== 'forensics' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Plagiarism Heatmap</button>
-                 <button onClick={() => setViewMode('forensics')} className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${viewMode === 'forensics' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Microscope className="w-3 h-3" />Forensic DNA</button>
-             </div>
+            {/* Mode Selection */}
+            <div className="space-y-3">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Synthesis Mode</p>
+              <div className="grid grid-cols-2 gap-2">
+                {(['Standard', 'Ghost', 'Academic', 'Creative'] as HumanizeMode[]).map((m) => (
+                  <button 
+                    key={m} onClick={() => setMode(m)}
+                    className={`p-4 rounded-2xl border text-left transition-all ${mode === m ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-slate-100 text-slate-600 hover:border-indigo-200'}`}
+                  >
+                    <span className="text-[10px] font-black uppercase block">{m}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Neural Parameters */}
+            <div className="space-y-4 pt-4 border-t border-slate-100">
+               <div className="flex justify-between items-center">
+                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Neural Intensity</p>
+                 <span className="text-[10px] font-black text-indigo-600">{strength}%</span>
+               </div>
+               <input 
+                 type="range" min="0" max="100" value={strength} 
+                 onChange={(e) => setStrength(parseInt(e.target.value))}
+                 className="w-full h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+               />
+               
+               <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div className="space-y-2">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                      <Globe className="w-2.5 h-2.5" /> Dialect
+                    </p>
+                    <select 
+                      value={dialect} onChange={(e) => setDialect(e.target.value as any)}
+                      className="w-full bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 text-[10px] font-bold text-slate-700 outline-none focus:border-indigo-500"
+                    >
+                      <option value="US">American</option>
+                      <option value="UK">British</option>
+                      <option value="CA">Canadian</option>
+                      <option value="AU">Australian</option>
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                      <Quote className="w-2.5 h-2.5" /> Citations
+                    </p>
+                    <div className="flex items-center h-9">
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" checked={includeCitations} onChange={() => setIncludeCitations(!includeCitations)} className="sr-only peer" />
+                        <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                        <span className="ml-2 text-[9px] font-black text-slate-500 uppercase">{includeCitations ? 'ON' : 'OFF'}</span>
+                      </label>
+                    </div>
+                  </div>
+               </div>
+
+               {includeCitations && (
+                 <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Citation Style</p>
+                    <div className="flex flex-wrap gap-2">
+                      {(['APA', 'MLA', 'Chicago', 'Harvard', 'IEEE'] as CitationStyle[]).map(s => (
+                        <button 
+                          key={s} onClick={() => setCitationStyle(s)}
+                          className={`px-3 py-1.5 rounded-lg text-[9px] font-black border transition-all ${citationStyle === s ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-slate-100 text-slate-400'}`}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                 </div>
+               )}
+            </div>
+
+            <button 
+              onClick={() => onFix({ mode, strength, includeCitations, dialect, citationStyle })}
+              disabled={isFixing}
+              className="w-full py-5 bg-indigo-600 text-white font-black uppercase rounded-[1.5rem] shadow-xl hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-3 transition-all hover:scale-[1.02] active:scale-[0.98]"
+            >
+              {isFixing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5" />}
+              {isFixing ? `Synthesizing...` : 'Deep Humanize'}
+            </button>
           </div>
-          <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-slate-200">
-             {viewMode === 'forensics' ? <ForensicsPanel data={analysis.forensics} sources={analysis.sourcesFound} /> : <HeatmapDisplay text={originalText} paragraphs={analysis.paragraphBreakdown} />}
+
+          <Heatmap paragraphs={analysis.paragraphBreakdown} onScrollTo={scrollToPara} />
+
+          {/* Bibliography Display */}
+          {fixResult && fixResult.references && fixResult.references.length > 0 && (
+            <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm animate-in slide-in-from-bottom-4">
+              <h3 className="text-xs font-black text-slate-900 uppercase mb-4 flex items-center gap-2">
+                <BookOpen className="w-4 h-4 text-indigo-500" /> Bibliography
+              </h3>
+              <div className="space-y-3">
+                {fixResult.references.map((ref, i) => (
+                  <div key={i} className="group relative p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-indigo-200 transition-all">
+                    <button 
+                      onClick={() => { navigator.clipboard.writeText(ref); toast.success("Citation Copied!"); }}
+                      className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 p-1.5 bg-white rounded-lg shadow-sm border border-slate-200 transition-all"
+                    >
+                      <Copy className="w-3 h-3 text-slate-400" />
+                    </button>
+                    <p className="text-[11px] leading-relaxed text-slate-600 font-serif-doc pr-6">{ref}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
+            <h3 className="text-xs font-black text-slate-900 uppercase mb-4 flex items-center gap-2">
+              <ExternalLink className="w-4 h-4 text-rose-500" /> Web Sources Found
+            </h3>
+            <div className="space-y-4 max-h-[350px] overflow-y-auto scrollbar-none">
+              {analysis.sourcesFound.map((source, i) => (
+                <a key={i} href={source.url} target="_blank" rel="noopener noreferrer" className="block p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-rose-300 transition-all group">
+                  <div className="flex justify-between items-center mb-1">
+                    <div className="text-[10px] font-black text-rose-600">{source.similarity}% Match</div>
+                    <Link2 className="w-3 h-3 text-slate-300 group-hover:text-rose-400 transition-all" />
+                  </div>
+                  <h4 className="text-xs font-bold text-slate-800 line-clamp-1">{source.title}</h4>
+                </a>
+              ))}
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden relative">
-           {!fixResult ? (
-             <div className="flex flex-col h-full">
-                <div className="bg-slate-50 border-b border-slate-200 p-4">
-                    <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2"><Wand2 className="w-4 h-4 text-indigo-500" />Configure Humanizer Engine</h3>
-                </div>
-                <div className="flex-1 overflow-y-auto p-6 space-y-8">
-                    <div className="grid grid-cols-2 gap-4">
-                        <ModeCard mode="Standard" selected={mode === 'Standard'} onClick={() => setMode('Standard')} icon={<Zap className="w-5 h-5" />} label="Standard" desc="Balanced rewrite." />
-                        <ModeCard mode="Ghost" selected={mode === 'Ghost'} onClick={() => setMode('Ghost')} icon={<Ghost className="w-5 h-5" />} label="Ghost Mode" desc="Anti-AI protocol." />
-                        <ModeCard mode="Academic" selected={mode === 'Academic'} onClick={() => setMode('Academic')} icon={<GraduationCap className="w-5 h-5" />} label="Scholar" desc="Formal academic tone." />
-                        <ModeCard mode="Creative" selected={mode === 'Creative'} onClick={() => setMode('Creative')} icon={<PenTool className="w-5 h-5" />} label="Creative" desc="Engaging flow." />
-                    </div>
-                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
-                        <div className="flex items-center justify-between cursor-pointer" onClick={() => setShowStyleInput(!showStyleInput)}>
-                            <div className="flex items-center gap-2"><Fingerprint className="w-5 h-5 text-indigo-600" /><div><h4 className="font-bold text-sm text-slate-800">Style Cloning</h4><p className="text-xs text-slate-500">Mimic your writing style</p></div></div>
-                            <div className={`w-10 h-5 rounded-full p-1 transition-colors ${showStyleInput ? 'bg-indigo-600' : 'bg-slate-300'}`}><div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${showStyleInput ? 'translate-x-5' : ''}`}></div></div>
-                        </div>
-                        {showStyleInput && <textarea className="w-full h-32 mt-4 p-3 text-xs bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none resize-none" placeholder="Paste sample text..." value={styleSample} onChange={(e) => setStyleSample(e.target.value)} />}
-                    </div>
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between"><label className="text-sm font-semibold text-slate-700">English Dialect</label><div className="flex bg-slate-100 p-1 rounded-lg">{(['US', 'UK', 'CA', 'AU'] as const).map((d) => (<button key={d} onClick={() => setDialect(d)} className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${dialect === d ? 'bg-white shadow text-indigo-700' : 'text-slate-500 hover:text-slate-700'}`}>{d}</button>))}</div></div>
-                        <div className="flex items-center justify-between"><label className="text-sm font-semibold text-slate-700 flex items-center gap-2"><Quote className="w-4 h-4 text-slate-400" />Auto-Citations</label><div className="flex items-center gap-2">{includeCitations && (<select className="text-xs bg-white border border-slate-200 rounded py-1 px-2 outline-none" value={citationStyle} onChange={(e) => setCitationStyle(e.target.value as CitationStyle)}><option value="APA">APA 7</option><option value="MLA">MLA 9</option><option value="Harvard">Harvard</option><option value="Chicago">Chicago</option><option value="IEEE">IEEE</option></select>)}<div className={`w-10 h-5 rounded-full p-1 cursor-pointer transition-colors ${includeCitations ? 'bg-indigo-600' : 'bg-slate-300'}`} onClick={() => setIncludeCitations(!includeCitations)}><div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${includeCitations ? 'translate-x-5' : ''}`}></div></div></div></div>
-                        <div><div className="flex justify-between text-xs font-bold text-slate-500 mb-2"><span>Humanization Strength</span><span>{strength}%</span></div><input type="range" min="1" max="100" value={strength} onChange={(e) => setStrength(parseInt(e.target.value))} className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600" /></div>
-                    </div>
-                </div>
-                <div className="p-4 border-t border-slate-100 bg-slate-50">
-                    {isFixing && (<div className="mb-3"><div className="flex justify-between text-xs font-bold text-slate-500 mb-1"><span>Processing...</span><span>{fixProgress}%</span></div><div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden"><div className="h-full bg-indigo-600 transition-all duration-500" style={{ width: `${Math.max(5, fixProgress)}%` }}></div></div></div>)}
-                    <button onClick={handleFixClick} disabled={isFixing} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all flex items-center justify-center gap-2 disabled:opacity-70">{isFixing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <><Sparkles className="w-5 h-5" />Humanize Text</>}</button>
-                </div>
+        <div className="lg:col-span-8 flex flex-col bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden">
+          <div className="px-8 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+             <div className="flex gap-6">
+                {['clean', 'diff'].map(v => (
+                  <button key={v} onClick={() => setViewMode(v as any)} disabled={!fixResult && v === 'diff'} className={`text-[10px] font-black uppercase tracking-widest py-2 border-b-2 transition-all ${viewMode === v ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+                    {v === 'clean' ? 'Synthesized' : 'Audit Log'}
+                  </button>
+                ))}
              </div>
-           ) : (
-             <div className="flex flex-col h-full">
-                 <div className="bg-slate-50 border-b border-slate-200 p-4 flex justify-between items-center">
-                    <div className="flex gap-2">
-                        <button onClick={() => setViewMode('clean')} className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors ${viewMode === 'clean' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Final Result</button>
-                        <button onClick={() => setViewMode('diff')} className={`text-xs font-bold px-3 py-1.5 rounded-full transition-colors flex items-center gap-1 ${viewMode === 'diff' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}><Split className="w-3 h-3" />Track Changes</button>
-                    </div>
-                    <div className="flex items-center gap-1">
-                        <button onClick={handleCopy} className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-indigo-600">{copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}</button>
-                        <button onClick={onReset} className="p-2 hover:bg-white rounded-lg transition-colors text-slate-500 hover:text-red-500"><RefreshCw className="w-4 h-4" /></button>
-                    </div>
-                 </div>
-                 <div className="flex-1 overflow-y-auto p-6">
-                     {viewMode === 'diff' ? <DiffDisplay oldText={originalText} newText={cleanMarkdown(fixResult.rewrittenText)} /> : <TextDisplay text={fixResult.rewrittenText} />}
-                     {fixResult.references && fixResult.references.length > 0 && (<div className="mt-8 pt-8 border-t border-slate-200"><h4 className="font-bold text-slate-800 mb-4">References</h4><ul className="space-y-2 text-sm text-slate-600 pl-4 list-decimal">{fixResult.references.map((ref, i) => (<li key={i}>{ref}</li>))}</ul></div>)}
-                 </div>
-                 <div className="p-4 bg-slate-50 border-t border-slate-200 space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
-                        <button onClick={() => downloadDocx(fixResult.rewrittenText, 'PlagiaFix_Rewritten', fixResult.references)} className="flex items-center justify-center gap-2 py-2.5 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg text-sm"><FileText className="w-4 h-4" />DOCX</button>
-                        <button onClick={() => downloadPdf(cleanTextForPdf(fixResult.rewrittenText), 100 - fixResult.newPlagiarismScore, analysis.plagiarismScore)} className="flex items-center justify-center gap-2 py-2.5 bg-indigo-600 text-white font-bold rounded-lg text-sm"><CheckCircle2 className="w-4 h-4" />Verify PDF</button>
-                    </div>
-                    <button onClick={handleGenerateSlides} disabled={isGeneratingSlides} className="w-full py-3 bg-gradient-to-r from-orange-500 to-pink-500 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm disabled:opacity-70">{isGeneratingSlides ? <RefreshCw className="w-4 h-4 animate-spin" /> : <><MonitorPlay className="w-4 h-4" />Generate PowerPoint Slides</>}</button>
-                    <button type="button" onClick={onReset} className="w-full py-3 bg-white border-2 border-dashed border-slate-300 text-slate-500 font-bold rounded-xl flex items-center justify-center gap-2 text-sm"><RefreshCw className="w-4 h-4" />Start New Scan</button>
-                 </div>
-             </div>
-           )}
+             {fixResult && (
+               <div className="flex gap-2">
+                  <button onClick={() => { navigator.clipboard.writeText(fixResult.rewrittenText); toast.success("Copied!"); }} className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase text-slate-600 shadow-sm transition-all hover:bg-slate-50" title="Copy Text"><Copy className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => downloadDocx(fixResult.rewrittenText, 'Fixed_Document', fixResult.references)} className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg hover:bg-indigo-700 transition-all flex items-center gap-2"><Download className="w-3.5 h-3.5" /> Download</button>
+               </div>
+             )}
+          </div>
+
+          <div ref={containerRef} onMouseUp={handleMouseUp} className="flex-1 overflow-y-auto p-12 font-serif-doc text-xl leading-relaxed text-slate-800 min-h-[600px]">
+            {!fixResult ? (
+              <div className="whitespace-pre-wrap">
+                {analysis.paragraphBreakdown.map((p, i) => (
+                  <div key={i} ref={el => { paraRefs.current[i] = el; }} className={`mb-6 p-4 rounded-2xl transition-all ${p.riskScore > 50 ? 'bg-rose-50 border border-rose-100' : ''}`}>
+                    {p.text}
+                  </div>
+                ))}
+              </div>
+            ) : viewMode === 'clean' ? (
+              <div className="whitespace-pre-wrap animate-in fade-in duration-700">
+                {fixResult.rewrittenText}
+                {fixResult.references && fixResult.references.length > 0 && (
+                   <div className="mt-20 pt-10 border-t border-slate-100">
+                      <h3 className="text-xl font-bold mb-6 font-sans">References</h3>
+                      <div className="space-y-4">
+                        {fixResult.references.map((r, i) => (
+                          <p key={i} className="text-sm text-slate-600 leading-relaxed pl-10 -indent-10">{r}</p>
+                        ))}
+                      </div>
+                   </div>
+                )}
+              </div>
+            ) : (
+              <div className="whitespace-pre-wrap">
+                {(Diff as any).diffWords(originalText, fixResult.rewrittenText).map((part: any, i: number) => (
+                  <span key={i} className={`${part.added ? 'bg-emerald-50 text-emerald-700' : part.removed ? 'bg-rose-50 text-rose-700 line-through opacity-40' : ''}`}>
+                    {part.value}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="p-6 bg-slate-50 border-t border-slate-100 grid grid-cols-3 gap-4">
+              <button onClick={handleStudyGuideGenerate} className="flex items-center justify-center gap-2 px-5 py-3 bg-white border border-slate-200 rounded-2xl text-[10px] font-black uppercase hover:text-indigo-600 transition-all shadow-sm">
+                <NotebookTabs className="w-4 h-4" /> Study Guide
+              </button>
+              <button onClick={handleMemoGenerate} className="flex items-center justify-center gap-2 px-5 py-3 bg-white border border-slate-200 rounded-2xl text-[10px] font-black uppercase hover:text-indigo-600 transition-all shadow-sm">
+                <FileCheck2 className="w-4 h-4" /> Memo
+              </button>
+              <button onClick={() => generatePresentationContent(fixResult?.rewrittenText || originalText).then(s => generatePptx(s, 'Lecture_Slides'))} className="flex items-center justify-center gap-2 px-5 py-3 bg-white border border-slate-200 rounded-2xl text-[10px] font-black uppercase hover:text-indigo-600 transition-all shadow-sm">
+                <MonitorPlay className="w-4 h-4" /> Slides
+              </button>
+          </div>
         </div>
       </div>
     </div>

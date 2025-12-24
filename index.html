@@ -4,27 +4,39 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PlagiaFix AI - Humanize Your Content</title>
+    <title>PlagiaFix AI - Professional Humanizer Studio</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
     <style>
       body {
         font-family: 'Inter', sans-serif;
       }
+      .font-serif-doc {
+        font-family: 'Lora', serif;
+      }
       /* Custom Scrollbar */
       ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+        width: 6px;
+        height: 6px;
       }
       ::-webkit-scrollbar-track {
-        background: #f1f5f9;
+        background: transparent;
       }
       ::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
-        border-radius: 4px;
+        background: #e2e8f0;
+        border-radius: 10px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
+        background: #cbd5e1;
+      }
+      /* Smooth transitions for interactive elements */
+      .transition-studio {
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+      /* Selection highlights */
+      ::selection {
+        background-color: rgba(99, 102, 241, 0.15);
+        color: inherit;
       }
     </style>
   <script type="importmap">
@@ -51,7 +63,7 @@
 }
 </script>
 </head>
-  <body class="bg-slate-50 text-slate-900 antialiased">
+  <body class="bg-[#fafafa] text-slate-900 antialiased overflow-x-hidden">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

@@ -1,11 +1,9 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
-import { AnalysisResult, FixResult, FixOptions, HumanizeMode, ParagraphAnalysis, CitationStyle, ForensicData, SourceMatch, SlideContent, BenchmarkResult } from "../types";
+import { AnalysisResult, FixResult, FixOptions, HumanizeMode, ParagraphAnalysis, CitationStyle, ForensicData, SourceMatch, SlideContent, StudyGuide, SummaryMemo } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// Using guidelines recommended models
-const ANALYZE_MODEL_ID = 'gemini-3-pro-preview'; 
+const ANALYZE_MODEL_ID = 'gemini-3-flash-preview'; 
 const FIX_MODEL_ID = 'gemini-3-pro-preview'; 
 const FALLBACK_MODEL_ID = 'gemini-3-flash-preview';
 
@@ -21,7 +19,7 @@ export const checkApiKey = (): boolean => {
   return !!process.env.API_KEY;
 };
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms + Math.random() * 100));
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms + Math.random() * 200));
 
 const parseJSONSafely = (text: string): any => {
   if (!text) return null;
@@ -41,18 +39,20 @@ const parseJSONSafely = (text: string): any => {
   if (startIndex !== -1 && endIndex !== -1) {
       cleanText = cleanText.substring(startIndex, endIndex + 1);
   }
-  try { return JSON.parse(cleanText); } catch (e) { return null; }
+  try {
+    return JSON.parse(cleanText);
+  } catch (e) {
+    return null;
+  }
 };
 
-const chunkText = (text: string, maxChunkSize: number = 15000): string[] => {
+const chunkText = (text: string, maxChunkSize: number = 10000): string[] => {
   if (!text || text.length === 0) return [];
   if (text.length <= maxChunkSize) return [text];
   const chunks: string[] = [];
   let currentChunk = '';
   let splitters = text.split(/\n\n/);
-  if (splitters.length < 3 && text.length > maxChunkSize) {
-      splitters = text.split(/(?<=[.!?])\s+/);
-  }
+  
   for (const part of splitters) {
     if ((currentChunk.length + part.length) > maxChunkSize && currentChunk.length > 0) {
       chunks.push(currentChunk.trim());
@@ -64,85 +64,51 @@ const chunkText = (text: string, maxChunkSize: number = 15000): string[] => {
   return chunks;
 };
 
-async function withRetry<T>(fn: () => Promise<T>, retries = 3, baseDelay = 1000): Promise<T> {
+async function withRetry<T>(fn: () => Promise<T>, retries = 3, baseDelay = 3000): Promise<T> {
     for (let attempt = 1; attempt <= retries; attempt++) {
-        try { return await fn(); } catch (error: any) {
-            const msg = error.message || '';
-            const isRateLimit = msg.includes('429') || msg.includes('quota');
-            const isServerBusy = msg.includes('503') || msg.includes('500') || msg.includes('overloaded');
-            if (attempt === retries || (!isRateLimit && !isServerBusy)) throw error;
-            const waitTime = baseDelay * Math.pow(2, attempt - 1);
+        try {
+            return await fn();
+        } catch (error: any) {
+            const msg = error.message?.toLowerCase() || '';
+            const isQuotaError = msg.includes('429') || msg.includes('quota') || msg.includes('rate limit');
+            
+            if (isQuotaError && attempt === retries) {
+                throw new Error("System Traffic High: Hundreds of pages take significant resources. Please wait 60 seconds or try a smaller section.");
+            }
+
+            if (attempt === retries || !isQuotaError) throw error;
+            
+            const waitTime = (baseDelay * Math.pow(2, attempt - 1)) + (Math.random() * 1000);
             await delay(waitTime);
         }
     }
-    throw new Error("Max retries exceeded");
+    throw new Error("Synthesis connection timed out.");
 }
 
 export const testGeminiConnection = async (): Promise<{ latency: number, status: 'OK' | 'ERROR', message?: string }> => {
   const start = Date.now();
   try {
-     // Updated to gemini-3-flash-preview for connectivity test per guidelines
-     await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: 'ping' });
+     const aiInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
+     await aiInstance.models.generateContent({ model: FALLBACK_MODEL_ID, contents: 'ping' });
      return { latency: Date.now() - start, status: 'OK' };
   } catch (e: any) {
      return { latency: 0, status: 'ERROR', message: e.message };
   }
 };
 
-/**
- * PERFORM GLOBAL STEALTH BENCHMARK
- */
-export const runStealthBenchmark = async (): Promise<BenchmarkResult> => {
-    const start = Date.now();
-    try {
-        const rawRes = await ai.models.generateContent({
-            model: FALLBACK_MODEL_ID,
-            contents: "Write a short 200 word essay about the future of artificial intelligence in academia. Use formal tone."
-        });
-        const rawText = rawRes.text;
-        const rawAnalysis = await analyzeDocument(rawText);
-        const rawScore = rawAnalysis.plagiarismScore;
-
-        const fixedRes = await fixPlagiarism(rawText, rawAnalysis.detectedIssues, {
-            mode: 'Ghost',
-            strength: 90,
-            dialect: 'US',
-            includeCitations: false
-        });
-        const fixedText = fixedRes.rewrittenText;
-
-        const fixedAnalysis = await analyzeDocument(fixedText);
-        const stealthScore = fixedAnalysis.plagiarismScore;
-
-        const bypassEfficiency = ((rawScore - stealthScore) / (rawScore || 1)) * 100;
-        const latency = Date.now() - start;
-
-        return {
-            timestamp: Date.now(),
-            latency,
-            rawAiScore: rawScore,
-            stealthScore,
-            bypassEfficiency: Math.round(bypassEfficiency),
-            status: bypassEfficiency > 60 ? 'PASS' : bypassEfficiency > 30 ? 'WARNING' : 'FAIL'
-        };
-    } catch (e: any) {
-        throw new Error(`Benchmark failed: ${e.message}`);
-    }
-};
-
 const calculateForensics = (text: string): ForensicData => {
     const sentences = text.match(/[^.!?]+[.!?]+/g) || [];
     const sentenceLengths = sentences.map(s => s.trim().split(/\s+/).length);
-    const avgSentenceLength = sentenceLengths.reduce((a, b) => a + b, 0) / (sentenceLengths.length || 1);
-    const variance = sentenceLengths.reduce((a, b) => a + Math.pow(b - avgSentenceLength, 2), 0) / (sentenceLengths.length || 1);
+    const avgSentenceLength = sentenceLengths.reduce((a, b) => a + b, 0) / (sentences.length || 1);
+    const variance = sentenceLengths.reduce((a, b) => a + Math.pow(b - avgSentenceLength, 2), 0) / (sentences.length || 1);
     const sentenceVariance = Math.sqrt(variance);
     const words = text.toLowerCase().match(/\b\w+\b/g) || [];
-    const uniqueWordRatio = new Set(words).size / (words.length || 1);
+    const uniqueWords = new Set(words);
+    const uniqueWordRatio = uniqueWords.size / (words.length || 1);
     const lowerText = text.toLowerCase();
     const aiTriggerWordsFound = BANNED_WORDS.filter(word => new RegExp(`\\b${word}\\b`, 'i').test(lowerText));
     const characters = text.replace(/\s/g, '').length;
     const readabilityScore = 4.71 * (characters / (words.length || 1)) + 0.5 * (words.length / (sentences.length || 1)) - 21.43;
-
     return {
         avgSentenceLength: Number(avgSentenceLength.toFixed(1)),
         sentenceVariance: Number(sentenceVariance.toFixed(1)),
@@ -152,152 +118,193 @@ const calculateForensics = (text: string): ForensicData => {
     };
 };
 
-export const analyzeDocument = async (text: string): Promise<AnalysisResult> => {
+export const analyzeDocument = async (text: string, onProgress?: (percent: number, stepName: string) => void): Promise<AnalysisResult> => {
   if (!process.env.API_KEY) throw new Error("API Key is missing");
   const forensics = calculateForensics(text);
-  const chunks = chunkText(text, 12000);
-  let chunksToAnalyze = chunks.length > 3 ? [chunks[0], chunks[Math.floor(chunks.length / 2)], chunks[chunks.length - 1]] : chunks.slice(0, 2);
-
-  const systemInstruction = `
-    You are a Forensic Text Analyst. Analyze for AI and Plagiarism. 
-    You MUST return valid JSON with these fields: { "plagiarismScore": number, "originalScore": number, "critique": string, "detectedIssues": string[], "paragraphBreakdown": [ { "text": string, "riskScore": number, "matchType": string, "evidence": string } ] }.
-  `;
-
-  try {
-      const results = await Promise.all(chunksToAnalyze.map(chunk => withRetry(() => analyzeSingleChunk(chunk, systemInstruction, ANALYZE_MODEL_ID, true))));
-      const validResults = results.filter(r => r !== null);
-      
-      let totalPlagiarismScore = 0;
-      let totalOriginalScore = 0;
-      const allIssues = new Set<string>();
-      const allParagraphs: ParagraphAnalysis[] = [];
-      const allSources: SourceMatch[] = [];
-      let worstCritique = "";
-
-      validResults.forEach(result => {
-          totalPlagiarismScore += result.plagiarismScore;
-          totalOriginalScore += result.originalScore;
-          if (Array.isArray(result.detectedIssues)) {
-              result.detectedIssues.forEach(i => allIssues.add(i));
-          }
-          if (Array.isArray(result.paragraphBreakdown)) {
-              allParagraphs.push(...result.paragraphBreakdown);
-          }
-          if (Array.isArray(result.sourcesFound)) {
-              allSources.push(...result.sourcesFound);
-          }
-          if (result.critique && result.critique.length > worstCritique.length) worstCritique = result.critique;
-      });
-
-      const uniqueSources = allSources.filter((v,i,a)=>a.findIndex(v2=>(v2.url===v.url))===i);
-      let calculatedScore = Math.round(totalPlagiarismScore / (validResults.length || 1));
-      if (uniqueSources.length > 0) calculatedScore = Math.max(calculatedScore, 85);
-      else if (forensics.sentenceVariance < 4 && forensics.aiTriggerWordsFound.length > 0) calculatedScore = Math.max(calculatedScore, 75);
-      else if (forensics.sentenceVariance > 10) calculatedScore = Math.min(calculatedScore, 20);
-
-      return {
-          originalScore: Math.round(totalOriginalScore / (validResults.length || 1)),
-          plagiarismScore: calculatedScore,
-          critique: worstCritique || "Analysis complete.",
-          detectedIssues: Array.from(allIssues),
-          paragraphBreakdown: allParagraphs,
-          sourcesFound: uniqueSources,
-          forensics
-      };
-  } catch (error) { throw error; }
-};
-
-const analyzeSingleChunk = async (text: string, systemInstruction: string, modelId: string, useSearch: boolean = true): Promise<AnalysisResult> => {
-    const response = await ai.models.generateContent({
-        model: modelId,
-        contents: text,
-        config: { systemInstruction, tools: useSearch ? [{ googleSearch: {} }] : undefined }
-    });
-    const sources: SourceMatch[] = [];
-    if (response.candidates?.[0]?.groundingMetadata?.groundingChunks) {
-        response.candidates[0].groundingMetadata.groundingChunks.forEach((chunk: any) => {
-            if (chunk.web?.uri) sources.push({ url: chunk.web.uri, title: chunk.web.title || "External Source", snippet: "Matched via Search", similarity: 100 });
-        });
-    }
-    const result = parseJSONSafely(response.text || '{}');
-    return { ...result, sourcesFound: sources.concat(result.sourcesFound || []), forensics: calculateForensics(text) } as AnalysisResult;
-}
-
-export const fixPlagiarism = async (text: string, currentIssues: string[], options: FixOptions, onProgress?: (percent: number) => void): Promise<FixResult> => {
-  const { includeCitations, citationStyle, mode, strength, dialect } = options;
-  const chunks = chunkText(text, 20000);
-  const systemInstruction = `You are a Ghostwriter. 
-  Banned words to NEVER use: ${BANNED_WORDS.join(", ")}. 
-  Mode: ${mode}. 
-  Dialect: ${dialect}. 
-  You MUST return a JSON object with strictly these fields: 
-  { 
-    "rewrittenText": "the new text", 
-    "newPlagiarismScore": number (0-5), 
-    "improvementsMade": string[] (MUST be an array of strings), 
-    "references": string[] (MUST be an array of strings) 
-  }`;
   
-  const processChunk = async (chunk: string): Promise<any> => {
-      const response = await ai.models.generateContent({
-          model: FIX_MODEL_ID,
-          contents: chunk,
-          config: { 
-            systemInstruction, 
-            temperature: mode === 'Ghost' ? 1.5 : 0.9, 
-            tools: includeCitations ? [{ googleSearch: {} }] : undefined
-          }
-      });
-      return parseJSONSafely(response.text || '{}');
-  };
+  const chunks = chunkText(text, 10000);
+  const totalChunks = chunks.length;
 
-  const chunkResults = [];
+  const systemInstruction = `Forensic Academic Investigator: You are scanning large document segments for plagiarism and AI patterns.
+  1. Actively use googleSearch to cross-reference text segments against known digital sources.
+  2. Evaluate text for robotic patterns, low burstiness, and repetitive structures indicative of AI generation.
+  3. Return ONLY valid JSON:
+  {
+    "plagiarismScore": number,
+    "originalScore": number,
+    "critique": "Professional assessment",
+    "detectedIssues": ["issue1", "issue2"],
+    "paragraphBreakdown": [{"text": "...", "riskScore": number, "matchType": "AI"|"PLAGIARISM"|"SAFE"}],
+    "sourcesFound": [{"url": "...", "title": "...", "similarity": number}]
+  }`;
+
+  const allResults: AnalysisResult[] = [];
+
   for (let i = 0; i < chunks.length; i++) {
-      const res = await processChunk(chunks[i]);
-      chunkResults.push(res);
-      if (onProgress) onProgress(Math.round(((i + 1) / chunks.length) * 100));
+    if (onProgress) onProgress(Math.round((i / totalChunks) * 100), `Auditing Segment ${i + 1}/${totalChunks}`);
+    
+    const chunkResult = await withRetry(async () => {
+      const aiInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const response = await aiInstance.models.generateContent({ 
+        model: ANALYZE_MODEL_ID, 
+        contents: chunks[i], 
+        config: { 
+          systemInstruction,
+          tools: [{ googleSearch: {} }]
+        } 
+      });
+
+      const grounding = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      const webSources: SourceMatch[] = [];
+      grounding?.forEach((c: any) => {
+        if (c.web?.uri) {
+          webSources.push({
+            url: c.web.uri,
+            title: c.web.title || "Web Source",
+            snippet: "Direct match identified via search grounding.",
+            similarity: 100
+          });
+        }
+      });
+
+      const parsed = parseJSONSafely(response.text || '{}');
+      if (parsed) {
+        parsed.sourcesFound = [...(parsed.sourcesFound || []), ...webSources];
+      }
+      return parsed as AnalysisResult;
+    });
+
+    if (chunkResult) allResults.push(chunkResult);
+    if (totalChunks > 1) await delay(400);
   }
 
-  const rewrittenChunks: string[] = [];
-  const allImprovements = new Set<string>();
-  const allReferences = new Set<string>();
-  let totalScore = 0;
-  
-  chunkResults.forEach(res => {
-      if (res) {
-          rewrittenChunks.push(res.rewrittenText || '');
-          totalScore += (res.newPlagiarismScore || 0);
-          // Defensive check to prevent "forEach is not a function" error
-          if (Array.isArray(res.improvementsMade)) {
-              res.improvementsMade.forEach((imp: any) => {
-                if (typeof imp === 'string') allImprovements.add(imp);
-              });
-          }
-          if (Array.isArray(res.references)) {
-              res.references.forEach((ref: any) => {
-                if (typeof ref === 'string') allReferences.add(ref);
-              });
-          }
-      }
+  const summary = allResults.reduce((acc, curr) => {
+    acc.plagiarismScore += curr.plagiarismScore;
+    acc.originalScore += curr.originalScore;
+    acc.detectedIssues.push(...(curr.detectedIssues || []));
+    acc.paragraphBreakdown.push(...(curr.paragraphBreakdown || []));
+    acc.sourcesFound.push(...(curr.sourcesFound || []));
+    return acc;
+  }, { 
+    plagiarismScore: 0, 
+    originalScore: 0, 
+    critique: "", 
+    detectedIssues: [] as string[], 
+    paragraphBreakdown: [] as ParagraphAnalysis[], 
+    sourcesFound: [] as SourceMatch[],
+    forensics
   });
 
+  const avgPlag = Math.round(summary.plagiarismScore / allResults.length);
+  const avgOrig = Math.round(summary.originalScore / allResults.length);
+  
+  summary.sourcesFound = Array.from(new Map(summary.sourcesFound.map(s => [s.url, s])).values());
+  summary.detectedIssues = Array.from(new Set(summary.detectedIssues));
+  summary.plagiarismScore = avgPlag;
+  summary.originalScore = avgOrig;
+  summary.critique = allResults[0]?.critique || "Multi-page scan complete.";
+
+  if (onProgress) onProgress(100, "Compiling Forensic Data");
+  return summary;
+};
+
+export const fixPlagiarism = async (text: string, currentIssues: string[], options: FixOptions, detectedSources: SourceMatch[] = [], onProgress?: (percent: number) => void): Promise<FixResult> => {
+  const { includeCitations, citationStyle, mode, strength, dialect } = options;
+  const chunks = chunkText(text, 12000); 
+  const totalChunks = chunks.length;
+
+  const citationRequirement = includeCitations 
+    ? `MANDATORY: Use ${citationStyle} style. Cross-reference claims with matches from: ${detectedSources.map(s => s.url).join(', ')}.`
+    : "Rewrite without citations.";
+
+  const systemInstruction = `Expert Humanizer: Rewrite the input to be indistinguishable from high-quality professional human writing.
+  MODE: ${mode}
+  DIALECT: ${dialect}
+  INTENSITY: ${strength}%
+  ${citationRequirement}
+  AVOID AI MARKERS: ${BANNED_WORDS.join(', ')}.
+  Return JSON:
+  {
+    "rewrittenText": "...",
+    "newPlagiarismScore": number,
+    "improvementsMade": ["..."],
+    "references": ["..."]
+  }`;
+  
+  const allResults: FixResult[] = [];
+
+  for (let i = 0; i < chunks.length; i++) {
+    if (onProgress) onProgress(Math.round(((i + 1) / totalChunks) * 100));
+    
+    const chunkResult = await withRetry(async () => {
+      const aiInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const config: any = { 
+        systemInstruction,
+        temperature: mode === 'Ghost' ? 1.5 : 0.9,
+        tools: includeCitations ? [{ googleSearch: {} }] : undefined
+      };
+      if (!includeCitations) config.responseMimeType = "application/json";
+
+      const response = await aiInstance.models.generateContent({ 
+        model: FIX_MODEL_ID, 
+        contents: chunks[i], 
+        config 
+      });
+      return parseJSONSafely(response.text || '{}') as FixResult;
+    });
+
+    if (chunkResult) allResults.push(chunkResult);
+    if (totalChunks > 1) await delay(600);
+  }
+
   return {
-    rewrittenText: rewrittenChunks.join('\n\n'),
-    newPlagiarismScore: Math.round(totalScore / (chunkResults.length || 1)),
-    improvementsMade: Array.from(allImprovements).slice(0, 6),
-    references: Array.from(allReferences)
+    rewrittenText: allResults.map(r => r.rewrittenText).join('\n\n'),
+    newPlagiarismScore: Math.round(allResults.reduce((a, b) => a + (b.newPlagiarismScore || 0), 0) / allResults.length),
+    improvementsMade: Array.from(new Set(allResults.flatMap(r => r.improvementsMade || []))),
+    references: Array.from(new Set(allResults.flatMap(r => r.references || [])))
   };
+};
+
+export const refineTextSegment = async (original: string, selection: string, mode: HumanizeMode): Promise<string> => {
+    const aiInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const systemInstruction = `Refine the selected segment to sound more organic and human (${mode} mode). Maintain meaning but change syntax. Return ONLY the refined text.`;
+    const response = await aiInstance.models.generateContent({ 
+        model: FALLBACK_MODEL_ID, 
+        contents: `Context: ${original}\nTarget Selection: ${selection}`, 
+        config: { systemInstruction } 
+    });
+    return response.text?.trim() || selection;
+};
+
+export const generateStudyGuide = async (text: string): Promise<StudyGuide> => {
+    const aiInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const systemInstruction = `Educational Synthesizer: Create a Study Guide. Return JSON: {title, summary, keyConcepts:[{term, definition}], practiceQuestions:[string]}`;
+    const response = await aiInstance.models.generateContent({ 
+        model: FALLBACK_MODEL_ID, 
+        contents: text.slice(0, 30000), 
+        config: { systemInstruction, responseMimeType: "application/json" } 
+    });
+    return parseJSONSafely(response.text || '{}');
+};
+
+export const generateSummaryMemo = async (text: string): Promise<SummaryMemo> => {
+    const aiInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const systemInstruction = `Executive Synthesizer: Create a professional memo. Return JSON: {to, from, subject, executiveSummary, keyActionItems:[string], conclusion}`;
+    const response = await aiInstance.models.generateContent({ 
+        model: FALLBACK_MODEL_ID, 
+        contents: text.slice(0, 30000), 
+        config: { systemInstruction, responseMimeType: "application/json" } 
+    });
+    return parseJSONSafely(response.text || '{}');
 };
 
 export const generatePresentationContent = async (text: string): Promise<SlideContent[]> => {
-    const response = await ai.models.generateContent({
-        model: FALLBACK_MODEL_ID,
-        contents: text.slice(0, 30000),
-        config: { 
-          systemInstruction: "Convert text to 8-12 presentation slides. Return JSON array: [{title, bullets, speakerNotes}]", 
-          responseMimeType: "application/json" 
-        }
+    const aiInstance = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const systemInstruction = `Slide Architect: Create detailed presentation content. Return JSON array of {title, bullets, speakerNotes}.`;
+    const response = await aiInstance.models.generateContent({ 
+        model: FALLBACK_MODEL_ID, 
+        contents: text.slice(0, 30000), 
+        config: { systemInstruction, responseMimeType: "application/json" } 
     });
-    const parsed = parseJSONSafely(response.text || '[]');
-    return Array.isArray(parsed) ? parsed : [];
+    return parseJSONSafely(response.text || '[]');
 };

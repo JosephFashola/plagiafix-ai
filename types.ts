@@ -7,14 +7,9 @@ export enum AppStatus {
   ERROR = 'ERROR'
 }
 
-export interface DocumentState {
-  originalText: string;
-  fileName: string;
-}
-
 export interface ParagraphAnalysis {
   text: string;
-  riskScore: number;
+  riskScore: number; // 0-100
   matchType?: 'AI' | 'PLAGIARISM' | 'MIXED' | 'SAFE';
   evidence?: string;
 }
@@ -28,30 +23,31 @@ export interface SourceMatch {
 
 export interface ForensicData {
   avgSentenceLength: number;
-  sentenceVariance: number;
-  uniqueWordRatio: number;
+  sentenceVariance: number; // Burstiness
+  uniqueWordRatio: number; // Perplexity proxy
   aiTriggerWordsFound: string[];
   readabilityScore: number;
 }
 
 export interface AnalysisResult {
   originalScore: number;
-  plagiarismScore: number;
+  plagiarismScore: number; 
   critique: string;
   detectedIssues: string[];
   paragraphBreakdown: ParagraphAnalysis[];
-  sourcesFound: SourceMatch[];
+  sourcesFound: SourceMatch[]; 
   forensics: ForensicData;
 }
 
 export type HumanizeMode = 'Standard' | 'Ghost' | 'Academic' | 'Creative';
+
 export type CitationStyle = 'APA' | 'MLA' | 'Chicago' | 'Harvard' | 'IEEE';
 
 export interface FixOptions {
   includeCitations: boolean;
   citationStyle?: CitationStyle;
   mode: HumanizeMode;
-  strength: number;
+  strength: number; 
   dialect: 'US' | 'UK' | 'CA' | 'AU';
   styleSample?: string;
 }
@@ -69,31 +65,43 @@ export interface SlideContent {
   speakerNotes: string;
 }
 
-export interface BenchmarkResult {
-  timestamp: number;
-  latency: number;
-  rawAiScore: number;
-  stealthScore: number;
-  bypassEfficiency: number;
-  status: 'PASS' | 'FAIL' | 'WARNING';
+export interface StudyGuide {
+  title: string;
+  summary: string;
+  keyConcepts: { term: string; definition: string }[];
+  practiceQuestions: string[];
 }
 
-export type TimeRange = '1H' | '24H' | '7D' | '30D' | 'ALL';
+export interface SummaryMemo {
+  to: string;
+  from: string;
+  subject: string;
+  executiveSummary: string;
+  keyActionItems: string[];
+  conclusion: string;
+}
+
+export interface DocumentState {
+  originalText: string;
+  fileName?: string;
+}
+
+export type LogType = 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'FEEDBACK' | 'SLIDE' | 'SHARE' | 'MEMO' | 'GUIDE' | 'REFINE';
+
+export type TimeRange = 'All Time' | '24H' | '7D' | '30D' | 'Custom' | 'ALL';
 
 export interface AppStats {
   totalScans: number;
   totalFixes: number;
   totalErrors: number;
   totalVisits: number;
-  totalSlides: number;
+  totalSlides?: number;
   tokensUsedEstimate: number;
   lastActive: string;
   firstActive?: string;
-  avgSessionDuration?: number; // in seconds
-  activeGeoRegions?: { name: string, count: number }[];
+  avgSessionDuration?: number;
+  activeGeoRegions?: any[];
 }
-
-export type LogType = 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'FEEDBACK' | 'SLIDE' | 'BENCHMARK' | 'SHARE';
 
 export interface LogEntry {
   timestamp: number;
