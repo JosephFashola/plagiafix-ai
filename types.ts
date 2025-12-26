@@ -1,4 +1,5 @@
 
+
 export enum AppStatus {
   IDLE = 'IDLE',
   ANALYZING = 'ANALYZING',
@@ -7,11 +8,35 @@ export enum AppStatus {
   ERROR = 'ERROR'
 }
 
+export interface DocumentVersion {
+  id: string;
+  timestamp: number;
+  text: string;
+  label: string;
+  score: number;
+}
+
+export interface PresenceUser {
+  id: string;
+  name: string;
+  color: string;
+  lastActive: number;
+  isAiAgent?: boolean;
+}
+
+export interface ErrorContext {
+  code: string;
+  message: string;
+  actionableAdvice: string;
+  technicalDetails?: string;
+}
+
 export interface ParagraphAnalysis {
   text: string;
   riskScore: number; 
   matchType?: 'AI' | 'PLAGIARISM' | 'MIXED' | 'SAFE';
   evidence?: string;
+  aiMarkers?: string[];
 }
 
 export interface FactCheckResult {
@@ -42,12 +67,14 @@ export interface ForensicData {
   uniqueWordRatio: number; 
   aiTriggerWordsFound: string[];
   readabilityScore: number;
+  aiProbability: number; // 0 to 100
   radarMetrics?: RadarMetric[];
 }
 
 export interface AnalysisResult {
   originalScore: number;
   plagiarismScore: number; 
+  aiProbability: number; // Added for dual-gauge support
   critique: string;
   detectedIssues: string[];
   paragraphBreakdown: ParagraphAnalysis[];
@@ -80,6 +107,7 @@ export interface FixOptions {
 export interface FixResult {
   rewrittenText: string;
   newPlagiarismScore: number;
+  newAiProbability: number;
   improvementsMade: string[];
   references?: string[];
   bibliography?: SourceMatch[];
@@ -98,7 +126,8 @@ export interface DocumentState {
   fileName?: string;
 }
 
-export type LogType = 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'FEEDBACK' | 'STYLE_SYNC' | 'CREDIT_TOPUP';
+// Fixed: Added FEEDBACK and SHARE to allowed log types
+export type LogType = 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'STYLE_SYNC' | 'CREDIT_TOPUP' | 'FEEDBACK' | 'SHARE';
 
 export interface AppStats {
   totalScans: number;

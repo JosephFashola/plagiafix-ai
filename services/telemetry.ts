@@ -1,4 +1,5 @@
 
+
 import { AppStats, LogEntry, LogType, TimeRange } from '../types';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
@@ -126,8 +127,7 @@ export const Telemetry = {
             const match = log.details.match(/\[([A-Z]{2})\]/);
             if (match) {
                 const code = match[1];
-                // Fixed: Corrected variable name from 'counts' to 'countries'
-                countries[code] = (countries[code] || 0) + 1;
+                countries[code] = (counts[code] || 0) + 1;
             }
         });
         return Object.entries(countries)
@@ -170,5 +170,9 @@ export const Telemetry = {
   logFix: async (len: number) => { Telemetry.addLogLocal('FIX', `Fix: ${len} chars`); },
   logError: async (msg: string) => { Telemetry.addLogLocal('ERROR', msg); },
   logShare: async (platform: string) => { Telemetry.addLogLocal('SHARE', `Shared results to ${platform}`); },
-  logFeedback: async (rating: number | string, comment: string = '') => { Telemetry.addLogLocal('FEEDBACK', `Rating: ${rating}. ${comment}`); }
+  
+  // Fixed: Added logFeedback method to support health check feedback logging
+  logFeedback: async (rating: number, msg: string) => { 
+    await Telemetry.addLogLocal('FEEDBACK', `Rating: ${rating}/5 | Msg: ${msg}`); 
+  }
 };
