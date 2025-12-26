@@ -9,9 +9,16 @@ export enum AppStatus {
 
 export interface ParagraphAnalysis {
   text: string;
-  riskScore: number; // 0-100
+  riskScore: number; 
   matchType?: 'AI' | 'PLAGIARISM' | 'MIXED' | 'SAFE';
   evidence?: string;
+}
+
+export interface FactCheckResult {
+  claim: string;
+  status: 'VERIFIED' | 'DISPUTED' | 'UNCERTAIN' | 'CITATION_NEEDED';
+  suggestedSource?: string;
+  sourceUrl?: string;
 }
 
 export interface SourceMatch {
@@ -19,14 +26,23 @@ export interface SourceMatch {
   title: string;
   snippet: string;
   similarity: number;
+  isVerified?: boolean;
+  doi?: string;
+}
+
+export interface RadarMetric {
+  subject: string;
+  A: number;
+  fullMark: number;
 }
 
 export interface ForensicData {
   avgSentenceLength: number;
-  sentenceVariance: number; // Burstiness
-  uniqueWordRatio: number; // Perplexity proxy
+  sentenceVariance: number; 
+  uniqueWordRatio: number; 
   aiTriggerWordsFound: string[];
   readabilityScore: number;
+  radarMetrics?: RadarMetric[];
 }
 
 export interface AnalysisResult {
@@ -37,19 +53,28 @@ export interface AnalysisResult {
   paragraphBreakdown: ParagraphAnalysis[];
   sourcesFound: SourceMatch[]; 
   forensics: ForensicData;
+  factCheckResults?: FactCheckResult[];
 }
 
-export type HumanizeMode = 'Standard' | 'Ghost' | 'Academic' | 'Creative';
+export type HumanizeMode = 'IvyStealth' | 'Cerebral' | 'Ghost' | 'Creative';
 
-export type CitationStyle = 'APA' | 'MLA' | 'Chicago' | 'Harvard' | 'IEEE';
+export type CitationStyle = 'APA' | 'MLA' | 'Chicago' | 'Harvard' | 'IEEE' | 'Vancouver' | 'Nature' | 'Bluebook';
+
+export interface LinguisticProfile {
+  id: string;
+  name: string;
+  sample: string;
+  complexity: number;
+  burstiness: number;
+}
 
 export interface FixOptions {
   includeCitations: boolean;
-  citationStyle?: CitationStyle;
+  citationStyle: CitationStyle;
   mode: HumanizeMode;
   strength: number; 
   dialect: 'US' | 'UK' | 'CA' | 'AU';
-  styleSample?: string;
+  styleProfileId?: string;
 }
 
 export interface FixResult {
@@ -57,12 +82,37 @@ export interface FixResult {
   newPlagiarismScore: number;
   improvementsMade: string[];
   references?: string[];
+  bibliography?: SourceMatch[];
+  identityMatchScore?: number;
+  fidelityMap?: RadarMetric[];
 }
 
 export interface SlideContent {
   title: string;
   bullets: string[];
   speakerNotes: string;
+}
+
+export interface DocumentState {
+  originalText: string;
+  fileName?: string;
+}
+
+export type LogType = 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'FEEDBACK' | 'STYLE_SYNC' | 'CREDIT_TOPUP';
+
+export interface AppStats {
+  totalScans: number;
+  totalFixes: number;
+  totalErrors: number;
+  totalVisits: number;
+  tokensUsedEstimate: number;
+  lastActive: string;
+}
+
+export interface LogEntry {
+  timestamp: number;
+  type: LogType;
+  details: string;
 }
 
 export interface StudyGuide {
@@ -81,30 +131,4 @@ export interface SummaryMemo {
   conclusion: string;
 }
 
-export interface DocumentState {
-  originalText: string;
-  fileName?: string;
-}
-
-export type LogType = 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'FEEDBACK' | 'SLIDE' | 'SHARE' | 'MEMO' | 'GUIDE' | 'REFINE';
-
-export type TimeRange = 'All Time' | '24H' | '7D' | '30D' | 'Custom' | 'ALL';
-
-export interface AppStats {
-  totalScans: number;
-  totalFixes: number;
-  totalErrors: number;
-  totalVisits: number;
-  totalSlides?: number;
-  tokensUsedEstimate: number;
-  lastActive: string;
-  firstActive?: string;
-  avgSessionDuration?: number;
-  activeGeoRegions?: any[];
-}
-
-export interface LogEntry {
-  timestamp: number;
-  type: LogType;
-  details: string;
-}
+export type TimeRange = '7D' | '30D' | '90D' | 'ALL';

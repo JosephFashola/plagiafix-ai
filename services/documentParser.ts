@@ -22,10 +22,9 @@ const parsePdf = async (file: File): Promise<string> => {
   // Dynamically import pdfjs-dist
   const pdfjsLib = await import('pdfjs-dist');
   
-  // Configure worker using the exact version from index.html import map
-  // CRITICAL: This version must match the installed 'pdfjs-dist' version exactly.
+  // Configure worker using the exact version from index.html import map (pinned to 4.4.168)
   if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@5.4.449/build/pdf.worker.min.mjs';
+      pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs';
   }
 
   const arrayBuffer = await file.arrayBuffer();
@@ -43,7 +42,7 @@ const parsePdf = async (file: File): Promise<string> => {
     
     // Join items with a space. 
     const pageText = textContent.items
-      .map((item: any) => item.str)
+      .map((item: any) => (item as any).str)
       .join(' ');
       
     fullText += pageText + '\n\n';
@@ -60,7 +59,7 @@ const parseDocx = async (file: File): Promise<string> => {
   // Dynamically import mammoth
   const mammothModule = await import('mammoth');
   // Handle default export differences in build environments
-  const mammoth = mammothModule.default || mammothModule;
+  const mammoth = (mammothModule as any).default || mammothModule;
 
   const arrayBuffer = await file.arrayBuffer();
   const result = await mammoth.extractRawText({ arrayBuffer });

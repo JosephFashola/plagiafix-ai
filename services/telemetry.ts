@@ -126,6 +126,7 @@ export const Telemetry = {
             const match = log.details.match(/\[([A-Z]{2})\]/);
             if (match) {
                 const code = match[1];
+                // Fixed: Corrected variable name from 'counts' to 'countries'
                 countries[code] = (countries[code] || 0) + 1;
             }
         });
@@ -142,12 +143,10 @@ export const Telemetry = {
   seedDemoData: async () => {
     if (supabase) {
         const mockCountries = ['US', 'US', 'US', 'GB', 'GB', 'CA', 'AU', 'DE', 'FR', 'IN', 'JP', 'BR', 'ZA', 'SG'];
-        // Seed 30 visits with random distribution
         for(let i=0; i<30; i++) {
             const randomCountry = mockCountries[Math.floor(Math.random() * mockCountries.length)];
             await Telemetry.addLogLocal('VISIT', `Simulation Session [${randomCountry}]`);
         }
-        // Seed some activity
         for(let i=0; i<8; i++) await Telemetry.addLogLocal('SCAN', 'Historical Scan Simulation');
         for(let i=0; i<5; i++) await Telemetry.addLogLocal('FIX', 'Historical Fix Simulation');
     }
@@ -169,5 +168,7 @@ export const Telemetry = {
   
   logScan: async (len: number) => { Telemetry.addLogLocal('SCAN', `Scan: ${len} chars`); },
   logFix: async (len: number) => { Telemetry.addLogLocal('FIX', `Fix: ${len} chars`); },
-  logError: async (msg: string) => { Telemetry.addLogLocal('ERROR', msg); }
+  logError: async (msg: string) => { Telemetry.addLogLocal('ERROR', msg); },
+  logShare: async (platform: string) => { Telemetry.addLogLocal('SHARE', `Shared results to ${platform}`); },
+  logFeedback: async (rating: number | string, comment: string = '') => { Telemetry.addLogLocal('FEEDBACK', `Rating: ${rating}. ${comment}`); }
 };
