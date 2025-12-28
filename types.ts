@@ -145,12 +145,19 @@ export interface RewriteFeedback {
   fixedScore?: number;
 }
 
+export interface ForensicInsights {
+  totalWords: number;
+  avgDocLength: number;
+  commonIssues: { issue: string; count: number }[];
+}
+
 export interface AppStats {
   totalScans: number;
   totalFixes: number;
   totalErrors: number;
   totalVisits: number;
   tokensUsedEstimate: number;
+  totalWordsProcessed: number;
   lastActive: string;
 }
 
@@ -176,4 +183,4 @@ export interface SummaryMemo {
   conclusion: string;
 }
 
-export type TimeRange = '7D' | '30D' | '90D' | 'ALL';
+export type TimeRange = '1H' | '24H' | '7D' | '30D' | '1Y' | 'ALL' | 'CUSTOM';

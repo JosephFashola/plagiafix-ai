@@ -47,7 +47,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
   const progressPercent = Math.min(100, (wordCount / FREE_TIER_LIMIT) * 100);
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-12 transition-colors duration-300">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Drop Zone */}
         <div className="lg:col-span-4">
@@ -56,19 +56,19 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
              onDragLeave={() => setIsDragging(false)}
              onDrop={(e) => { e.preventDefault(); setIsDragging(false); e.dataTransfer.files?.[0] && processFile(e.dataTransfer.files[0]); }}
              onClick={() => !isProcessing && document.getElementById('file-upload')?.click()} 
-             className={`h-full min-h-[480px] rounded-[3rem] p-12 text-center cursor-pointer group flex flex-col items-center justify-center gap-8 transition-all duration-500 border-2 ${isDragging ? 'bg-indigo-600 border-indigo-400 shadow-2xl shadow-indigo-200' : 'bg-white border-slate-100 hover:border-indigo-200 shadow-xl shadow-slate-100/50'}`}
+             className={`h-full min-h-[480px] rounded-[3rem] p-12 text-center cursor-pointer group flex flex-col items-center justify-center gap-8 transition-all duration-500 border-2 ${isDragging ? 'bg-indigo-600 border-indigo-400 shadow-2xl shadow-indigo-200' : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-800 shadow-xl shadow-slate-100/50 dark:shadow-none'}`}
            >
              <input type="file" id="file-upload" className="hidden" accept=".txt,.md,.pdf,.docx" onChange={(e) => e.target.files?.[0] && processFile(e.target.files[0])} disabled={isLoading || isProcessing} />
              
-             <div className={`p-8 rounded-3xl transition-all duration-500 ${isDragging ? 'bg-white text-indigo-600' : isProcessing ? 'bg-indigo-600 text-white shadow-xl' : 'bg-slate-50 text-slate-400 group-hover:bg-indigo-600 group-hover:text-white group-hover:-translate-y-2'}`}>
+             <div className={`p-8 rounded-3xl transition-all duration-500 ${isDragging ? 'bg-white text-indigo-600' : isProcessing ? 'bg-indigo-600 text-white shadow-xl' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 group-hover:bg-indigo-600 group-hover:text-white group-hover:-translate-y-2'}`}>
                {isProcessing ? <Loader2 className="h-12 w-12 animate-spin" /> : <UploadCloud className="h-12 w-12" />}
              </div>
              
              <div className="space-y-4">
-                <h3 className={`text-2xl font-black uppercase tracking-tight transition-colors font-heading ${isDragging ? 'text-white' : 'text-slate-900'}`}>
+                <h3 className={`text-2xl font-black uppercase tracking-tight transition-colors font-heading ${isDragging ? 'text-white' : 'text-slate-900 dark:text-white'}`}>
                     {isProcessing ? 'Processing' : 'Institutional Data'}
                 </h3>
-                <p className={`text-[10px] font-bold uppercase tracking-[0.2em] max-w-[220px] mx-auto leading-relaxed transition-colors ${isDragging ? 'text-indigo-100' : 'text-slate-400'}`}>
+                <p className={`text-[10px] font-bold uppercase tracking-[0.2em] max-w-[220px] mx-auto leading-relaxed transition-colors ${isDragging ? 'text-indigo-100' : 'text-slate-400 dark:text-slate-500'}`}>
                     {parsingMsg || 'PDF, DOCX, or MD up to 100 pages. Forensic audit begins on drop.'}
                 </p>
              </div>
@@ -77,14 +77,14 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
 
         {/* Neural Terminal Area */}
         <div className="lg:col-span-8">
-          <div className="bg-slate-900 rounded-[3rem] p-1 shadow-2xl relative overflow-hidden h-full border border-white/5">
+          <div className="bg-slate-900 dark:bg-slate-950 rounded-[3rem] p-1 shadow-2xl relative overflow-hidden h-full border border-white/5 dark:border-indigo-500/10 transition-all duration-500">
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent pointer-events-none"></div>
             
             <div className="p-10 flex flex-col h-full relative z-10">
               <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-4">
                       <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 neural-pulse"></div>
-                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Forensic Terminal v14.5</span>
+                      <span className="text-[10px] font-black text-slate-500 dark:text-slate-600 uppercase tracking-[0.3em]">Forensic Terminal v14.5</span>
                   </div>
               </div>
 
@@ -99,13 +99,13 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
               <div className="mt-8 pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-8">
                 <div className="flex flex-col gap-3 w-full md:w-80">
                   <div className="flex items-center justify-between px-2">
-                      <div className="flex items-center gap-2 text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                      <div className="flex items-center gap-2 text-[9px] font-black text-slate-500 dark:text-slate-600 uppercase tracking-widest">
                           <Activity className="h-3.5 w-3.5 text-indigo-500" />
                           Institutional Buffer
                       </div>
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-300">{wordCount.toLocaleString()} Words</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-300 dark:text-slate-500">{wordCount.toLocaleString()} Words</span>
                   </div>
-                  <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="w-full h-1 bg-slate-800 dark:bg-slate-900 rounded-full overflow-hidden">
                       <div className="h-full transition-all duration-1000 bg-indigo-500 shadow-[0_0_15px_rgba(79,70,229,0.5)]" style={{ width: `${progressPercent}%` }}></div>
                   </div>
                 </div>
