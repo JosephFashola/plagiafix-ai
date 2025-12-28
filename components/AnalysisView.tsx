@@ -1,311 +1,517 @@
-
-import React, { useState, useEffect, useRef } from 'react';
-import { AnalysisResult, AppStatus, FixResult, FixOptions, HumanizeMode, CitationStyle, SourceMatch, RadarMetric } from '../types';
+import React, { useState } from 'react';
+import { AnalysisResult, AppStatus, FixResult, FixOptions, CitationStyle, LinguisticProfile, RewriteFeedback, SlideContent, SummaryMemo } from '../types';
 import ScoreGauge from './ScoreGauge';
+import ForensicRadar from './ForensicRadar';
+import RatingModal from './RatingModal';
 import { 
-  Sparkles, RefreshCw, Download, Zap, Globe, Link2, Layers, ShieldCheck, 
-  Settings, Ghost, GraduationCap, Palette, Linkedin, 
-  X, Search, Eye, Coins, Radar, Target, Activity, ShieldAlert, Cpu,
-  CheckCircle2, AlertTriangle, FileCheck, NotebookTabs, MonitorPlay, ChevronDown, Dna, Fingerprint, BadgeCheck,
-  Bookmark, ExternalLink, Scale, Bitcoin, Copy, SortAsc, BookCheck, FileSignature, Command, ChevronRight
+  ShieldAlert, RefreshCw, Zap, CheckCircle, 
+  ExternalLink, Sparkles, 
+  Library, Globe, Share2, 
+  Activity, Info, Book, ScrollText, Briefcase,
+  FileOutput, Trash2, ShieldCheck, Settings2,
+  Linkedin, Quote, Twitter,
+  Star, Send, User, Mail, CheckCircle2,
+  Fingerprint, FileText, Download, Presentation, FileSearch, ClipboardList, X, ArrowRight, Heart
 } from 'lucide-react';
-import { Radar as ReRadar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from 'recharts';
+import { downloadPdf, downloadDocx } from '../services/exportService';
+import { generatePptx } from '../services/slideGenerator';
+import { generateSlides, generateSummary } from '../services/geminiService';
+import { Telemetry } from '../services/telemetry';
+import StyleDNAVault, { SYSTEM_ARCHETYPES } from './StyleDNAVault';
 import toast from 'react-hot-toast';
-import { downloadDocx, downloadPdf } from '../services/exportService';
-// @ts-ignore
-import * as Diff from 'diff';
 
 interface AnalysisViewProps {
   originalText: string;
   analysis: AnalysisResult;
   fixResult: FixResult | null;
   status: AppStatus;
-  fixProgress?: number;
   onFix: (options: FixOptions) => void;
   onUpdateText: (newText: string) => void;
   onReset: () => void;
-  scoreHistory: number[];
+  scoreHistory?: number[];
+  profiles: LinguisticProfile[];
+  activeProfileId: string | null;
+  onProfileSelect: (id: string | null) => void;
+  onAddProfile: (profile: LinguisticProfile) => void;
 }
 
-const CITATION_STYLES: CitationStyle[] = ['APA', 'MLA', 'Chicago', 'Harvard', 'IEEE', 'Vancouver', 'Nature', 'Bluebook'];
-
-const MODE_META: Record<HumanizeMode, { icon: React.ReactNode, desc: string }> = {
-  IvyStealth: { 
-    icon: <ShieldCheck className="w-4 h-4" />, 
-    desc: "Targeted bypass of institutional pattern recognition." 
-  },
-  Ghost: { 
-    icon: <Ghost className="w-4 h-4" />, 
-    desc: "Extreme adversarial noise for absolute stealth." 
-  },
-  Cerebral: { 
-    icon: <GraduationCap className="w-4 h-4" />, 
-    desc: "Stanford-grade academic voice with rhythmic chaos." 
-  },
-  Creative: { 
-    icon: <Palette className="w-4 h-4" />, 
-    desc: "Max stylistic variance and identity retention." 
+const IconRenderer = ({ name, className }: { name: string, className?: string }) => {
+  switch (name) {
+    case 'Book': return <Book className={className} />;
+    case 'ScrollText': return <ScrollText className={className} />;
+    case 'Library': return <Library className={className} />;
+    case 'Ghost': return <Sparkles className={className} />;
+    case 'Briefcase': return <Briefcase className={className} />;
+    default: return <Fingerprint className={className} />;
   }
 };
 
-const FidelityMap: React.FC<{ data: RadarMetric[] }> = ({ data }) => (
-  <div className="bg-slate-900 border border-white/5 rounded-3xl sm:rounded-[2.5rem] p-6 sm:p-8 shadow-2xl relative overflow-hidden group h-full">
-    <div className="absolute top-0 right-0 p-4 opacity-10">
-      <Target className="w-12 h-12 sm:w-16 sm:h-16 text-indigo-400" />
-    </div>
-    <div className="flex items-center justify-between mb-4 sm:mb-6">
-      <h4 className="text-[10px] font-black uppercase text-indigo-400 tracking-[0.2em] flex items-center gap-2">
-        <Radar className="w-4 h-4" /> Synthesis Fidelity
-      </h4>
-      <span className="text-[8px] font-black text-emerald-500 bg-emerald-500/10 px-2 py-1 rounded uppercase tracking-widest">STABLE-V6</span>
-    </div>
-    <div className="h-[200px] sm:h-[240px] w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <RadarChart cx="50%" cy="50%" outerRadius="80%" data={data}>
-          <PolarGrid stroke="#ffffff10" />
-          <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 9, fontWeight: 800 }} />
-          <ReRadar name="Fidelity" dataKey="A" stroke="#6366f1" fill="#6366f1" fillOpacity={0.6} />
-        </RadarChart>
-      </ResponsiveContainer>
-    </div>
-  </div>
-);
-
 const AnalysisView: React.FC<AnalysisViewProps> = ({ 
-  originalText, analysis, fixResult, status, onFix, onUpdateText, onReset, scoreHistory
+  originalText, analysis, fixResult, status, onFix, onUpdateText, onReset,
+  scoreHistory = [], profiles, activeProfileId, onProfileSelect, onAddProfile
 }) => {
   const isFixing = status === AppStatus.FIXING;
-  const [viewMode, setViewMode] = useState<'clean' | 'diff' | 'citations'>('clean');
-  const [mode, setMode] = useState<HumanizeMode>('IvyStealth');
+  const [viewMode, setViewMode] = useState<'editor' | 'citations'>('editor');
   const [citationStyle, setCitationStyle] = useState<CitationStyle>('APA');
-  const [strength, setStrength] = useState(98);
-  const [includeCitations, setIncludeCitations] = useState(true);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [dialect, setDialect] = useState<'US' | 'UK' | 'CA' | 'AU'>('US');
+  const [showDNAVault, setShowDNAVault] = useState(false);
+  const [isRatingOpen, setIsRatingOpen] = useState(false);
   
-  const containerRef = useRef<HTMLDivElement>(null);
-  const currentPlagiarism = fixResult ? fixResult.newPlagiarismScore : analysis.plagiarismScore;
-  const currentAiProb = fixResult ? fixResult.newAiProbability : analysis.aiProbability;
+  // Generation States
+  const [isGeneratingSlides, setIsGeneratingSlides] = useState(false);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+  const [summary, setSummary] = useState<SummaryMemo | null>(null);
+  
+  // Feedback States
+  const [fbRating, setFbRating] = useState(0);
+  const [fbName, setFbName] = useState('');
+  const [fbEmail, setFbEmail] = useState('');
+  const [fbComment, setFbComment] = useState('');
+  const [fbSubmitted, setFbSubmitted] = useState(false);
 
-  const handleFixInitiation = () => {
-    onFix({ mode, strength, includeCitations, citationStyle, dialect: 'US', styleProfileId: undefined });
-    if (window.innerWidth < 1024) setIsSettingsOpen(false);
+  const currentAiRisk = fixResult ? fixResult.newAiProbability : analysis.aiProbability;
+  const currentPlagRisk = fixResult ? fixResult.newPlagiarismScore : analysis.plagiarismScore;
+  const bibliography = fixResult?.bibliography || [];
+
+  const handleGenerateSlides = async () => {
+    if (!fixResult) return;
+    setIsGeneratingSlides(true);
+    try {
+      const slides = await generateSlides(fixResult.rewrittenText);
+      if (slides && slides.length > 0) {
+        await generatePptx(slides, 'Institutional_Presentation');
+      } else {
+        toast.error("Could not sequence slide data.");
+      }
+    } catch (e) {
+      toast.error("Slide synthesis failed.");
+    } finally {
+      setIsGeneratingSlides(false);
+    }
   };
 
-  const activeBibliography = [...(fixResult?.bibliography || analysis.sourcesFound || [])]
-    .sort((a, b) => a.title.localeCompare(b.title));
+  const handleGenerateSummary = async () => {
+    if (!fixResult) return;
+    setIsGeneratingSummary(true);
+    try {
+      const res = await generateSummary(fixResult.rewrittenText);
+      setSummary(res);
+      toast.success("Memo Synthesized");
+    } catch (e) {
+      toast.error("Summary synthesis failed.");
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+  };
+
+  const handleShare = async (platform: string) => {
+    const shareText = `I achieved ${100 - currentAiRisk}% human stealth on my work with PlagiaFix AI! 🧬 Zero-trace institutional humanization is here. #PlagiaFix #AI #AcademicFreedom`;
+    const shareUrl = window.location.origin;
+
+    if (platform === 'twitter') {
+      window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`, '_blank');
+    } else if (platform === 'linkedin') {
+      window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`, '_blank');
+    } else {
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: 'Forensic Linguistic Report', text: shareText, url: shareUrl });
+        } catch (e) {}
+      } else {
+        navigator.clipboard.writeText(shareUrl);
+        toast.success("Link copied to clipboard");
+      }
+    }
+  };
+
+  const handleFeedbackSubmit = async () => {
+    if (fbRating === 0) {
+      toast.error("Please select a rating to calibrate.");
+      return;
+    }
+    if (!fbName.trim() || !fbEmail.trim()) {
+      toast.error("Name and Email required for verification.");
+      return;
+    }
+
+    try {
+      const fb: RewriteFeedback = {
+        firstName: fbName,
+        email: fbEmail,
+        rating: fbRating,
+        comment: fbComment,
+        originalScore: analysis.aiProbability,
+        fixedScore: fixResult?.newAiProbability
+      };
+      await Telemetry.logRewriteFeedback(fb);
+      setFbSubmitted(true);
+      toast.success("Stealth calibration saved", { icon: '🧬' });
+    } catch (e) {
+      toast.error("Transmission failed.");
+    }
+  };
+
+  const currentProfile = profiles.find(p => p.id === activeProfileId) || 
+                         SYSTEM_ARCHETYPES.find(p => p.id === activeProfileId) || 
+                         SYSTEM_ARCHETYPES.find(p => p.id === 'sys_ghost');
 
   return (
-    <div className="max-w-[1400px] mx-auto px-2 sm:px-4 pb-10 sm:pb-20 font-sans">
-      <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 mb-6 sm:mb-8">
+    <div className="max-w-[1600px] mx-auto space-y-10 animate-in fade-in duration-700 pb-20">
+      
+      {/* Forensic Intelligence Dashboard */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="lg:col-span-3 flex flex-col gap-6">
+          <ScoreGauge score={currentAiRisk} label="Neural Pattern Risk" history={scoreHistory} />
+          <ScoreGauge score={currentPlagRisk} label="Source Overlap" />
+        </div>
         
-        {/* Dual Gauge Panel */}
-        <div className="flex-[2] bg-white rounded-3xl sm:rounded-[2.5rem] p-6 sm:p-8 shadow-sm border border-slate-200 flex flex-col md:flex-row items-center gap-6 sm:gap-8 relative overflow-hidden">
-          <div className="flex gap-4 sm:gap-8 shrink-0">
-            <ScoreGauge score={currentPlagiarism} label="Plagiarism" />
-            <ScoreGauge score={currentAiProb} label="AI Signature" />
+        <div className="lg:col-span-6 bg-white rounded-[3.5rem] p-12 border border-slate-100 shadow-xl shadow-slate-100/30 flex flex-col group transition-all duration-500 hover:shadow-2xl hover:border-indigo-100">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-4">
+              <Activity className="w-6 h-6 text-indigo-600" />
+              <h3 className="text-sm font-black text-slate-900 uppercase tracking-[0.2em] font-heading">Linguistic Forensics</h3>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => handleShare('native')} className="w-11 h-11 bg-slate-50 text-slate-400 hover:text-indigo-600 rounded-full flex items-center justify-center transition-all border border-slate-100"><Share2 className="w-5 h-5" /></button>
+            </div>
           </div>
-          <div className="h-px md:h-20 w-full md:w-px bg-slate-100 hidden md:block"></div>
-          <div className="flex-1 grid grid-cols-2 gap-4 sm:gap-6 w-full">
-            <div className="space-y-1">
-              <p className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-widest">Burstiness</p>
-              <div className="flex items-center gap-2">
-                <Activity className="w-3.5 h-3.5 sm:w-4 h-4 text-emerald-500" />
-                <span className="text-sm sm:text-lg font-black text-slate-900">{fixResult ? 'High' : 'Low'}</span>
+          
+          <div className="flex-1 min-h-[400px] flex items-center justify-center">
+            <ForensicRadar data={fixResult?.fidelityMap || analysis.forensics.radarMetrics || []} />
+          </div>
+
+          <div className="grid grid-cols-3 gap-6 mt-8">
+            {[
+              { l: 'Readability', v: analysis.forensics.readabilityScore },
+              { l: 'Variance', v: analysis.forensics.sentenceVariance },
+              { l: 'Lexical', v: (analysis.forensics.uniqueWordRatio * 100).toFixed(0) + '%' }
+            ].map(stat => (
+              <div key={stat.l} className="bg-slate-50/50 rounded-3xl p-6 text-center border border-slate-100 transition-colors group-hover:bg-white">
+                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">{stat.l}</p>
+                 <p className="text-2xl font-black text-slate-900 font-heading">{stat.v}</p>
               </div>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-widest">Adversarial</p>
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="w-3.5 h-3.5 sm:w-4 h-4 text-indigo-500" />
-                <span className="text-sm sm:text-lg font-black text-slate-900">V6.2 Pro</span>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-widest">Grounding</p>
-              <div className="flex items-center gap-2">
-                <Globe className="w-3.5 h-3.5 sm:w-4 h-4 text-blue-500" />
-                <span className="text-sm sm:text-lg font-black text-slate-900">Live Web</span>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <p className="text-[9px] sm:text-[10px] font-black uppercase text-slate-400 tracking-widest">Entropy</p>
-              <div className="flex items-center gap-2">
-                <Layers className="w-3.5 h-3.5 sm:w-4 h-4 text-purple-500" />
-                <span className="text-sm sm:text-lg font-black text-slate-900">{fixResult ? 'Extreme' : 'Locked'}</span>
-              </div>
-            </div>
+            ))}
           </div>
         </div>
 
-        <div className="flex-1">
-           <FidelityMap data={fixResult?.fidelityMap || [
-             { subject: 'Stealth', A: 50, fullMark: 100 },
-             { subject: 'Entropy', A: 40, fullMark: 100 },
-             { subject: 'Burstiness', A: 30, fullMark: 100 },
-             { subject: 'Fact Fidelity', A: 90, fullMark: 100 },
-             { subject: 'Linguistic Jitter', A: 20, fullMark: 100 }
-           ]} />
+        <div className="lg:col-span-3 flex flex-col gap-8">
+          <div className="bg-slate-900 rounded-[3rem] p-10 text-white relative group overflow-hidden shadow-2xl flex-1">
+            <div className="absolute top-0 right-0 p-8 opacity-10"><ShieldAlert className="w-32 h-32" /></div>
+            <div className="flex items-center gap-4 mb-8">
+              <Info className="w-5 h-5 text-indigo-400" />
+              <h3 className="text-xs font-black uppercase tracking-widest font-heading">Institutional critique</h3>
+            </div>
+            <div className="space-y-6 relative z-10">
+              <p className="text-slate-400 text-sm font-medium leading-relaxed italic border-l-2 border-indigo-500 pl-6 py-2">"{analysis.critique}"</p>
+              <div className="flex flex-wrap gap-2 pt-2">
+                {analysis.detectedIssues.slice(0, 4).map((issue, i) => (
+                  <span key={i} className="px-4 py-2 bg-white/5 border border-white/10 text-white text-[9px] font-black uppercase tracking-wider rounded-xl">{issue}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-indigo-600 rounded-[3rem] p-10 text-white shadow-2xl relative overflow-hidden group">
+            <div className="absolute -bottom-6 -right-6 opacity-10 group-hover:scale-110 transition-transform">
+               <Share2 className="w-40 h-40" />
+            </div>
+            <div className="relative z-10">
+              <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-indigo-200 mb-2">Social Sync</h4>
+              <p className="text-2xl font-black uppercase tracking-tight font-heading mb-6">Verify Results</p>
+              <div className="grid grid-cols-2 gap-3">
+                 <button onClick={() => handleShare('twitter')} className="py-3.5 bg-white/10 border border-white/20 rounded-2xl flex items-center justify-center gap-2 hover:bg-white/20 transition-all font-black uppercase text-[9px] tracking-widest"><Twitter className="w-3.5 h-3.5" /> X</button>
+                 <button onClick={() => handleShare('linkedin')} className="py-3.5 bg-white/10 border border-white/20 rounded-2xl flex items-center justify-center gap-2 hover:bg-white/20 transition-all font-black uppercase text-[9px] tracking-widest"><Linkedin className="w-3.5 h-3.5" /> LinkedIn</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8">
-        <div className="lg:col-span-4 space-y-6">
-          <div className="bg-white rounded-3xl sm:rounded-[2.5rem] border border-slate-200 p-6 sm:p-8 shadow-sm space-y-6 sm:space-y-8">
-            <div className="flex items-center justify-between">
-              <h3 className="text-[10px] sm:text-xs font-black text-slate-900 uppercase flex items-center gap-2 tracking-widest font-heading">
-                <Settings className="w-4 h-4 text-indigo-500" /> Bypass Engine
-              </h3>
-            </div>
-
-            <div className="space-y-3">
-              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest font-heading">Forensic Mode</p>
-              <div className="grid grid-cols-1 gap-3">
-                {(Object.keys(MODE_META) as HumanizeMode[]).map((m) => {
-                  const meta = MODE_META[m];
-                  const isActive = mode === m;
-                  return (
-                    <button 
-                      key={m} 
-                      onClick={() => setMode(m)}
-                      className={`group p-3 sm:p-4 rounded-xl sm:rounded-2xl border text-left transition-all flex items-start gap-4 ${isActive ? 'bg-slate-900 border-slate-900 text-white shadow-xl' : 'bg-slate-50 border-slate-100 text-slate-600 hover:border-indigo-300'}`}
-                    >
-                      <div className={`mt-0.5 p-1.5 sm:p-2 rounded-lg sm:rounded-xl border shrink-0 ${isActive ? 'bg-white/10 border-white/20 text-white' : 'bg-white border-slate-100 text-indigo-500 shadow-sm'}`}>
-                        {meta.icon}
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider mb-0.5 font-heading">{m}</span>
-                        <span className="text-[9px] sm:text-[10px] font-medium leading-tight opacity-70">{meta.desc}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <button 
-              data-action="main-fix"
-              onClick={handleFixInitiation}
-              disabled={isFixing}
-              className="w-full py-4 sm:py-5 bg-indigo-600 text-white font-black uppercase rounded-2xl sm:rounded-[1.5rem] shadow-xl hover:bg-indigo-700 disabled:opacity-50 flex flex-col items-center justify-center gap-1 transition-all hover:scale-[1.02] active:scale-[0.98] font-heading"
-            >
-              <div className="flex items-center gap-3 text-xs sm:text-base">
-                {isFixing ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Zap className="w-5 h-5 text-yellow-400" />}
-                {isFixing ? `Neutralizing Patterns...` : 'Neutralize Signatures'}
-              </div>
-            </button>
-          </div>
-
-          {/* Forensic Marker List */}
-          <div className="bg-slate-900 rounded-3xl p-6 sm:p-8 text-white space-y-6">
-             <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2 font-heading">
-                <Cpu className="w-4 h-4" /> Detected Markers
-             </h4>
-             <div className="space-y-3">
-                {analysis.detectedIssues.map((issue, idx) => (
-                  <div key={idx} className="flex items-start gap-3 p-3 bg-white/5 border border-white/10 rounded-xl">
-                     <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0 mt-0.5" />
-                     <p className="text-[11px] font-medium text-slate-300 leading-tight">{issue}</p>
-                  </div>
-                ))}
-             </div>
-          </div>
-        </div>
-
-        <div className="lg:col-span-8 flex flex-col bg-white rounded-3xl sm:rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden">
-          <div className="px-4 sm:px-8 py-4 sm:py-5 border-b border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-50/50">
-             <div className="flex gap-4 overflow-x-auto scrollbar-none w-full sm:w-auto pb-1 sm:pb-0">
-                {[
-                  { id: 'clean', label: 'Fixed View', icon: <Sparkles className="w-3 h-3 text-indigo-500" />, key: '1' },
-                  { id: 'diff', label: 'Forensic Diff', icon: <Eye className="w-3 h-3 text-emerald-500" />, key: '2' },
-                  { id: 'citations', label: 'Reference Studio', icon: <Bookmark className="w-3 h-3 text-amber-500" />, key: '3' }
-                ].map(v => (
+      {/* Editor & Content Workspace */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+        <div className="lg:col-span-3 space-y-6 sticky top-24">
+           
+           {fixResult && (
+             <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-xl space-y-8 animate-in slide-in-from-left duration-700">
+                <div className="flex items-center justify-between">
+                   <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Post-Analysis Tools</h3>
+                   <Fingerprint className="w-4 h-4 text-indigo-400" />
+                </div>
+                
+                <div className="space-y-3">
                   <button 
-                    key={v.id} 
-                    onClick={() => setViewMode(v.id as any)} 
-                    disabled={!fixResult && (v.id === 'diff' || v.id === 'citations')} 
-                    className={`text-[9px] sm:text-[10px] font-black uppercase tracking-widest py-2 border-b-2 transition-all flex items-center gap-2 shrink-0 font-heading ${viewMode === v.id ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+                    onClick={handleGenerateSlides}
+                    disabled={isGeneratingSlides}
+                    className="w-full p-4 bg-slate-900 text-white rounded-2xl flex items-center gap-4 hover:bg-black transition-all disabled:opacity-50"
                   >
-                    {v.icon}
-                    {v.label}
-                  </button>
-                ))}
-             </div>
-             <div className="flex gap-2 w-full sm:w-auto">
-                {fixResult && (
-                  <button onClick={() => downloadDocx(fixResult.rewrittenText, 'Camouflaged_Submission', activeBibliography)} className="flex-1 sm:flex-none px-5 py-2.5 bg-slate-900 text-white rounded-xl text-[9px] sm:text-[10px] font-black uppercase shadow-lg hover:bg-slate-800 transition-all flex items-center justify-center gap-2 group font-heading">
-                    <Download className="w-4 h-4 group-hover:translate-y-1 transition-transform" /> 
-                    Export Forensic Report
-                  </button>
-                )}
-             </div>
-          </div>
-
-          <div ref={containerRef} className="flex-1 overflow-y-auto p-6 sm:p-12 font-serif-doc text-lg sm:text-xl leading-relaxed text-slate-800 min-h-[400px] sm:min-h-[600px] selection:bg-indigo-100/50">
-            {viewMode === 'citations' ? (
-              <div className="animate-in fade-in duration-500 space-y-4 sm:space-y-6 font-sans">
-                 <div className="bg-indigo-50 border border-indigo-100 p-5 sm:p-6 rounded-2xl sm:rounded-[2rem] flex items-center justify-between">
-                    <div>
-                       <h4 className="text-xs sm:text-sm font-black text-slate-900 uppercase tracking-tight mb-1 font-heading">Citation Forensic Studio</h4>
-                       <p className="text-[10px] sm:text-xs text-slate-500">Synthesizing and aligning references in <strong>{citationStyle}</strong>.</p>
+                    <div className="p-2 bg-indigo-600 rounded-lg">
+                      {isGeneratingSlides ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Presentation className="w-4 h-4" />}
                     </div>
+                    <div className="text-left">
+                       <p className="text-[10px] font-black uppercase tracking-widest">Slide Deck</p>
+                       <p className="text-[8px] font-bold text-slate-400 uppercase">Institutional PPTX</p>
+                    </div>
+                  </button>
+
+                  <button 
+                    onClick={handleGenerateSummary}
+                    disabled={isGeneratingSummary}
+                    className="w-full p-4 bg-white border border-slate-200 rounded-2xl flex items-center gap-4 hover:border-indigo-600 transition-all disabled:opacity-50"
+                  >
+                    <div className="p-2 bg-slate-100 text-slate-900 rounded-lg">
+                      {isGeneratingSummary ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FileSearch className="w-4 h-4" />}
+                    </div>
+                    <div className="text-left">
+                       <p className="text-[10px] font-black uppercase tracking-widest text-slate-900">Executive Memo</p>
+                       <p className="text-[8px] font-bold text-slate-400 uppercase">Synthesis Report</p>
+                    </div>
+                  </button>
+
+                  <button 
+                    onClick={() => setIsRatingOpen(true)}
+                    className="w-full p-4 bg-indigo-50 border border-indigo-100 rounded-2xl flex items-center gap-4 hover:bg-indigo-100 transition-all text-indigo-600"
+                  >
+                    <div className="p-2 bg-white rounded-lg shadow-sm">
+                       <Heart className="w-4 h-4 fill-current" />
+                    </div>
+                    <div className="text-left">
+                       <p className="text-[10px] font-black uppercase tracking-widest">Rate Studio</p>
+                       <p className="text-[8px] font-bold opacity-60 uppercase">Share Stealth Success</p>
+                    </div>
+                  </button>
+                </div>
+             </div>
+           )}
+
+           <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-xl space-y-8">
+              <div className="flex items-center justify-between">
+                <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Settings</h3>
+                <Settings2 className="w-4 h-4 text-slate-300" />
+              </div>
+              <div className="space-y-6">
+                 {/* Citation Style */}
+                 <div className="space-y-3">
+                   <div className="flex items-center gap-2 ml-2">
+                     <Quote className="w-3.5 h-3.5 text-indigo-600" />
+                     <label className="text-[10px] font-black text-slate-900 uppercase tracking-[0.2em]">Citations</label>
+                   </div>
+                   <select value={citationStyle} onChange={(e) => setCitationStyle(e.target.value as CitationStyle)} className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-[11px] font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all cursor-pointer">
+                     <option value="APA">APA 7th Edition</option>
+                     <option value="MLA">MLA 9th Edition</option>
+                     <option value="Chicago">Chicago Manual</option>
+                     <option value="Harvard">Harvard Style</option>
+                     <option value="IEEE">IEEE Style</option>
+                     <option value="Vancouver">Vancouver</option>
+                     <option value="Nature">Nature Journal</option>
+                     <option value="Bluebook">Bluebook</option>
+                   </select>
+                 </div>
+
+                 {/* English Dialect */}
+                 <div className="space-y-3">
+                   <div className="flex items-center gap-2 ml-2">
+                     <Globe className="w-3.5 h-3.5 text-indigo-600" />
+                     <label className="text-[10px] font-black text-slate-900 uppercase tracking-[0.2em]">English Dialect</label>
+                   </div>
+                   <select value={dialect} onChange={(e) => setDialect(e.target.value as any)} className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-[11px] font-black uppercase tracking-widest outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-600 transition-all cursor-pointer">
+                     <option value="US">American (US)</option>
+                     <option value="UK">British (UK)</option>
+                     <option value="CA">Canadian (CA)</option>
+                     <option value="AU">Australian (AU)</option>
+                   </select>
                  </div>
                  
-                 <div className="grid grid-cols-1 gap-3 sm:gap-4">
-                    {activeBibliography.map((source, idx) => (
-                      <div key={idx} className="p-4 sm:p-6 bg-white border border-slate-200 rounded-2xl sm:rounded-[2rem] flex flex-col gap-4 relative group hover:border-indigo-400 transition-all">
-                        <div className="flex-1">
-                           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-2 sm:mb-3">
-                              <h4 className="text-xs sm:text-sm font-black text-slate-900 uppercase tracking-tight line-clamp-1 font-heading">{source.title}</h4>
-                              {source.isVerified && <div className="w-fit px-2 py-0.5 bg-emerald-100 text-emerald-600 text-[7px] sm:text-[8px] font-black uppercase tracking-widest rounded flex items-center gap-1 font-heading"><BookCheck className="w-2.5 h-2.5" /> Verified</div>}
-                           </div>
-                           <p className="text-[10px] sm:text-xs font-sans text-slate-500 italic mb-3 sm:mb-4">"{source.snippet || 'Referenced match found.'}"</p>
-                           <a href={source.url} target="_blank" rel="noreferrer" className="text-[8px] sm:text-[9px] font-black text-indigo-500 uppercase tracking-widest flex items-center gap-1.5 hover:underline font-heading"><ExternalLink className="w-3 h-3" /> Source Portal</a>
-                        </div>
-                      </div>
-                    ))}
+                 <button onClick={() => setViewMode(viewMode === 'citations' ? 'editor' : 'citations')} className={`w-full p-6 border rounded-[2.25rem] transition-all flex items-center gap-4 ${viewMode === 'citations' ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-slate-50 border-slate-100 hover:border-indigo-200'}`}>
+                    <div className={`p-3 rounded-xl ${viewMode === 'citations' ? 'bg-white/20' : 'bg-white border'}`}><Library className="w-5 h-5" /></div>
+                    <div className="text-left">
+                       <p className="text-[11px] font-black uppercase">Verified Library</p>
+                       <p className="text-[8px] font-bold uppercase mt-1 opacity-60">{bibliography.length} Grounded References</p>
+                    </div>
+                 </button>
+              </div>
+           </div>
+        </div>
+
+        <div className="lg:col-span-9 flex flex-col gap-8">
+           <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white flex flex-col sm:flex-row items-center justify-between gap-6 shadow-2xl relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/20 to-transparent pointer-events-none"></div>
+              <div className="flex items-center gap-6 relative z-10">
+                 <div className="p-4 bg-indigo-600 rounded-3xl shadow-2xl shadow-indigo-500/40 relative">
+                    <IconRenderer name={currentProfile?.iconName || 'Fingerprint'} className="w-7 h-7" />
+                 </div>
+                 <div>
+                    <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em] mb-1">Writing Signature</h4>
+                    <p className="text-2xl font-black uppercase tracking-tight font-heading">{currentProfile?.name}</p>
                  </div>
               </div>
-            ) : !fixResult ? (
-              <div className="whitespace-pre-wrap">
-                {analysis.paragraphBreakdown.map((p, i) => (
-                  <div key={i} className={`mb-4 sm:mb-6 p-6 sm:p-8 rounded-2xl sm:rounded-[2.5rem] transition-all group relative border ${p.riskScore > 40 ? 'bg-rose-50 border-rose-100 shadow-sm' : 'border-transparent'}`}>
-                    {p.riskScore > 40 && (
-                      <div className="absolute top-4 right-4 px-3 py-1 bg-rose-600 text-white rounded-full text-[8px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-lg font-heading">
-                        <AlertTriangle className="w-3 h-3" /> {p.matchType || 'ALERT'}
+              <div className="flex gap-4 relative z-10">
+                <button onClick={() => setShowDNAVault(true)} className="px-8 py-4 bg-white/10 hover:bg-white/20 border border-white/10 text-[10px] font-black uppercase tracking-widest rounded-2xl transition-all">Change DNA</button>
+              </div>
+           </div>
+
+           <div className="bg-white rounded-[4rem] border border-slate-100 shadow-2xl flex flex-col min-h-[800px] overflow-hidden relative">
+              <div className="px-10 py-8 border-b border-slate-50 flex justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-20">
+                <div className="flex items-center gap-5">
+                  <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
+                  <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-[0.3em] font-heading">Neural Buffer Output</h3>
+                </div>
+                <div className="flex gap-3">
+                  {fixResult && (
+                    <>
+                      <button 
+                        onClick={() => downloadDocx(fixResult.rewrittenText, 'PlagiaFix_Institutional_Doc', bibliography)} 
+                        className="flex items-center gap-2 px-5 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl text-[10px] font-black uppercase border border-indigo-100 hover:bg-indigo-600 hover:text-white transition-all"
+                      >
+                        <FileText className="w-3.5 h-3.5" /> DOCX
+                      </button>
+                      <button 
+                        onClick={() => downloadPdf(fixResult.rewrittenText, 100, 0, 'PlagiaFix_Verification_Certificate')} 
+                        className="flex items-center gap-2 px-5 py-2.5 bg-emerald-50 text-emerald-600 rounded-xl text-[10px] font-black uppercase border border-emerald-100 hover:bg-emerald-600 hover:text-white transition-all"
+                      >
+                        <Download className="w-3.5 h-3.5" /> PDF Certificate
+                      </button>
+                    </>
+                  )}
+                  <button onClick={onReset} className="p-2.5 bg-slate-50 text-slate-400 hover:text-rose-600 hover:bg-white border border-slate-100 rounded-xl transition-all"><Trash2 className="w-5 h-5" /></button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto">
+                {viewMode === 'citations' ? (
+                  <div className="p-16 space-y-12 animate-in fade-in duration-500">
+                    <div className="flex justify-between items-end border-b border-slate-100 pb-10">
+                      <div className="space-y-2">
+                        <h3 className="text-4xl font-black text-slate-900 font-heading uppercase tracking-tighter">Verified Library</h3>
+                        <p className="text-slate-400 font-medium text-sm">Grounded research synced via Deep Web audit (Style: {citationStyle}).</p>
                       </div>
-                    )}
-                    {p.text}
-                    {p.aiMarkers && p.aiMarkers.length > 0 && (
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {p.aiMarkers.map((m, j) => (
-                          <span key={j} className="text-[8px] font-black uppercase text-rose-400 border border-rose-100 px-2 py-0.5 rounded bg-white font-heading">{m}</span>
-                        ))}
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {bibliography.length === 0 ? <p className="col-span-2 text-center opacity-30 italic py-20">No references grounded yet. Run 'Ground & Purify' to audit the web.</p> : 
+                      bibliography.map((s, i) => (
+                        <div key={i} className="p-10 bg-slate-50 border border-slate-100 rounded-[2.5rem] hover:bg-white hover:border-indigo-200 transition-all">
+                          <div className="flex justify-between items-start mb-6">
+                            <span className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Entry #{i+1}</span>
+                            <a href={s.url} target="_blank" rel="noreferrer" className="p-2 bg-white rounded-lg text-slate-400 hover:text-indigo-600 transition-colors shadow-sm"><ExternalLink className="w-4 h-4" /></a>
+                          </div>
+                          {s.fullCitation ? (
+                            <p className="text-sm font-medium text-slate-900 leading-relaxed mb-6 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm font-serif-doc">
+                               {s.fullCitation}
+                            </p>
+                          ) : (
+                            <h4 className="text-lg font-black text-slate-900 leading-tight mb-4">{s.title}</h4>
+                          )}
+                          <p className="text-[11px] text-slate-500 mb-6 leading-relaxed italic border-l-2 border-slate-200 pl-4">"{s.snippet}"</p>
+                          <div className="flex items-center gap-2 text-[8px] font-black text-emerald-600 uppercase bg-emerald-50 px-3 py-1.5 rounded-full w-fit"><CheckCircle className="w-3 h-3" /> Grounded</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-12 font-serif-doc text-xl leading-relaxed text-slate-800 h-full">
+                    {fixResult ? (
+                      <div className="animate-in fade-in slide-in-from-bottom-4 duration-1000">
+                        <div contentEditable onBlur={(e) => onUpdateText(e.currentTarget.innerText)} className="outline-none whitespace-pre-wrap p-6 rounded-3xl min-h-[600px] border-2 border-transparent focus:border-indigo-50 focus:bg-slate-50/20">
+                          {fixResult.rewrittenText}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="h-full flex flex-col items-center justify-center text-center space-y-12 py-20">
+                        <div className="relative p-16 bg-indigo-50 rounded-[5rem] text-indigo-600 shadow-inner">
+                           <Sparkles className="w-32 h-32 animate-pulse" />
+                           <div className="absolute -top-6 -right-6 bg-slate-900 text-white text-[11px] font-black px-8 py-4 rounded-3xl uppercase tracking-[0.2em] shadow-2xl border border-white/10">V14 ULTRA STEALTH</div>
+                        </div>
+
+                        <div className="w-full max-w-xl bg-slate-50 p-12 rounded-[4rem] border border-slate-100 shadow-2xl space-y-10 text-left">
+                           <div className="grid grid-cols-2 gap-8">
+                              <div className="space-y-4">
+                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Deep Research</label>
+                                 <div className="w-full p-5 bg-white border border-slate-100 rounded-2xl text-[13px] font-black text-slate-900 flex items-center justify-between shadow-sm">Live Grounding <Globe className="w-4 h-4 text-emerald-500" /></div>
+                              </div>
+                              <div className="space-y-4">
+                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Bypass Logic</label>
+                                 <div className="w-full p-5 bg-white border border-slate-100 rounded-2xl flex items-center justify-between text-[13px] font-black text-slate-900 shadow-sm">Institutional <ShieldCheck className="w-4 h-4 text-indigo-600" /></div>
+                              </div>
+                           </div>
+                           <button onClick={() => onFix({ mode: 'IvyStealth', strength: 99, includeCitations: true, citationStyle, dialect, styleProfileId: activeProfileId || undefined })} disabled={isFixing} className="w-full py-7 bg-slate-900 text-white rounded-[2.5rem] font-black uppercase tracking-[0.25em] text-sm shadow-[0_20px_40px_rgba(0,0,0,0.2)] hover:bg-black transition-all flex items-center justify-center gap-6 relative overflow-hidden">
+                              {isFixing ? <RefreshCw className="animate-spin w-6 h-6 text-indigo-400" /> : <Zap className="w-6 h-6 text-amber-500 fill-current" />}
+                              {isFixing ? 'Auditing Timechain...' : 'Ground & Purify'}
+                           </button>
+                        </div>
                       </div>
                     )}
                   </div>
-                ))}
+                )}
               </div>
-            ) : viewMode === 'clean' ? (
-              <div 
-                contentEditable
-                onBlur={(e) => onUpdateText(e.currentTarget.innerText)}
-                suppressContentEditableWarning
-                className="whitespace-pre-wrap animate-in fade-in duration-700 outline-none focus:ring-4 focus:ring-indigo-500/5 p-2 sm:p-4 rounded-xl border border-transparent focus:border-indigo-100"
-              >
-                {fixResult.rewrittenText}
-              </div>
-            ) : (
-              <div className="whitespace-pre-wrap">
-                {(Diff as any).diffWords(originalText, fixResult.rewrittenText).map((part: any, i: number) => (
-                  <span key={i} className={`${part.added ? 'bg-emerald-50 text-emerald-700 font-medium' : part.removed ? 'bg-rose-50 text-rose-700 line-through opacity-40' : ''}`}>
-                    {part.value}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+           </div>
         </div>
       </div>
+
+      {/* Summary/Memo Preview Modal */}
+      {summary && (
+        <div className="fixed inset-0 z-[150] bg-slate-950/90 backdrop-blur-2xl flex items-center justify-center p-4">
+          <div className="w-full max-w-4xl bg-white rounded-[3rem] shadow-2xl overflow-hidden flex flex-col h-[85vh] border border-white/20 animate-in zoom-in duration-300">
+            <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+               <div className="flex items-center gap-4">
+                 <div className="p-3 bg-indigo-600 rounded-2xl shadow-lg">
+                    <ClipboardList className="w-6 h-6 text-white" />
+                 </div>
+                 <div>
+                    <h2 className="text-xl font-black text-slate-900 uppercase tracking-tighter">Executive Synthesis Memo</h2>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Institutional Review Series</p>
+                 </div>
+               </div>
+               <button onClick={() => setSummary(null)} className="p-2 hover:bg-slate-100 rounded-full transition-all">
+                  <X className="w-6 h-6 text-slate-400" />
+               </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-12 bg-slate-50">
+               <div className="max-w-2xl mx-auto bg-white p-16 rounded-[2.5rem] shadow-xl border border-slate-100 space-y-10 font-serif-doc">
+                  <div className="space-y-2 border-b-2 border-slate-900 pb-8">
+                     <div className="flex justify-between text-[11px] font-black uppercase tracking-widest text-slate-400">
+                        <span>Memo To: {summary.to}</span>
+                        <span>Date: {new Date().toLocaleDateString()}</span>
+                     </div>
+                     <p className="text-sm font-black uppercase tracking-widest text-slate-900">From: {summary.from}</p>
+                     <p className="text-xl font-black uppercase tracking-tighter text-indigo-600 mt-4">Subject: {summary.subject}</p>
+                  </div>
+
+                  <div className="space-y-6">
+                     <h3 className="text-lg font-black uppercase tracking-widest text-slate-900">Executive Summary</h3>
+                     <p className="text-lg leading-relaxed text-slate-700">{summary.executiveSummary}</p>
+                  </div>
+
+                  <div className="space-y-6">
+                     <h3 className="text-lg font-black uppercase tracking-widest text-slate-900">Key Action Items</h3>
+                     <ul className="space-y-4">
+                        {summary.keyActionItems.map((item, idx) => (
+                           <li key={idx} className="flex gap-4 items-start">
+                              <div className="mt-1.5 w-2 h-2 rounded-full bg-indigo-600 shrink-0"></div>
+                              <p className="text-lg text-slate-700">{item}</p>
+                           </li>
+                        ))}
+                     </ul>
+                  </div>
+
+                  <div className="space-y-6 pt-10 border-t border-slate-100">
+                     <h3 className="text-lg font-black uppercase tracking-widest text-slate-900">Conclusion</h3>
+                     <p className="text-lg leading-relaxed text-slate-700 italic">"{summary.conclusion}"</p>
+                  </div>
+               </div>
+            </div>
+
+            <div className="p-8 border-t border-slate-100 bg-white flex justify-end gap-4">
+               <button onClick={() => setSummary(null)} className="px-8 py-4 bg-slate-100 text-slate-400 rounded-2xl font-black uppercase tracking-widest text-[10px] hover:bg-slate-200 transition-all">Dismiss</button>
+               <button onClick={() => { downloadPdf(JSON.stringify(summary), 100, 0, 'Executive_Memo'); setSummary(null); }} className="px-10 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-xl hover:bg-indigo-700 transition-all flex items-center gap-3">
+                  <Download className="w-4 h-4" /> Download PDF
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isRatingOpen && <RatingModal onClose={() => setIsRatingOpen(false)} />}
+      {showDNAVault && <StyleDNAVault profiles={profiles} activeProfileId={activeProfileId} onProfileSelect={onProfileSelect} onAddProfile={onAddProfile} onClose={() => setShowDNAVault(false)} />}
     </div>
   );
 };

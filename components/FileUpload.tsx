@@ -1,50 +1,28 @@
-
-import React, { useCallback, useState, useEffect } from 'react';
 import { 
-  UploadCloud, FileText, ShieldCheck, Database, Loader2, Sparkles, 
-  BookOpen, Layers, Search, Cpu, BrainCircuit, Globe, CheckCircle, 
-  Eye, Zap, Fingerprint, BarChart3
+  UploadCloud, Search, 
+  Presentation, FileSearch, Mic,
+  Shuffle, Zap, ArrowRight,
+  Activity, GraduationCap, ShieldCheck, Loader2, Sparkles
 } from 'lucide-react';
 import { parseFile } from '../services/documentParser';
 import toast from 'react-hot-toast';
+import React, { useState, useEffect } from 'react';
 
 interface FileUploadProps {
   onTextLoaded: (text: string, fileName: string) => void;
   isLoading: boolean;
+  hasCredits: boolean;
+  onOpenShop: () => void;
 }
 
-const FEATURE_CARDS = [
-  {
-    icon: <Search className="w-5 h-5" />,
-    title: "Deep Scan",
-    desc: "Verify plagiarism and AI signatures with exhaustive forensic analysis.",
-    color: "indigo"
-  },
-  {
-    icon: <Cpu className="w-5 h-5" />,
-    title: "AI Checker",
-    desc: "Adversarial detection targeting V6 models of institutional academic checkers.",
-    color: "purple"
-  },
-  {
-    icon: <Globe className="w-5 h-5" />,
-    title: "Fact Checker",
-    desc: "Search-grounded verification of empirical claims and citations.",
-    color: "emerald"
-  },
-  {
-    icon: <BarChart3 className="w-5 h-5" />,
-    title: "Content DNA",
-    desc: "Real-time readability and linguistic friction mapping for pro quality.",
-    color: "amber"
-  }
-];
+const FREE_TIER_LIMIT = 100000; // Increased for "hundreds of pages" claim
 
-const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading }) => {
-  const [dragActive, setDragActive] = useState(false);
+const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCredits, onOpenShop }) => {
   const [inputText, setInputText] = useState('');
   const [wordCount, setWordCount] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [parsingMsg, setParsingMsg] = useState('');
 
   useEffect(() => {
     const words = inputText.trim() ? inputText.trim().split(/\s+/).filter(w => w.length > 0) : [];
@@ -53,117 +31,99 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading }) => {
 
   const processFile = async (file: File) => {
     setIsProcessing(true);
-    const loadingToast = toast.loading(`Uploading document...`);
+    setParsingMsg('Analyzing Document Structure...');
     try {
-      const text = await parseFile(file);
+      const text = await parseFile(file, (msg) => setParsingMsg(msg));
       onTextLoaded(text, file.name);
-      toast.success("Document analyzed successfully", { icon: '✨' });
-    } catch (error: any) {
-      toast.error(error.message || "Parse failed.");
-    } finally {
-      setIsProcessing(false);
-      toast.dismiss(loadingToast);
+      toast.success("Institutional Dataset Synced");
+    } catch (e: any) { 
+      toast.error(e.message); 
+    } finally { 
+      setIsProcessing(false); 
+      setParsingMsg('');
     }
   };
 
-  const handleTextSubmit = () => {
-    if (inputText.trim().length > 10) {
-      onTextLoaded(inputText, 'Studio Input');
-    }
-  };
-
-  const isDisabled = isLoading || isProcessing;
+  const progressPercent = Math.min(100, (wordCount / FREE_TIER_LIMIT) * 100);
 
   return (
-    <div className="max-w-[1400px] mx-auto space-y-12 sm:space-y-20 animate-in fade-in slide-in-from-bottom-8 duration-1000">
-      
-      {/* Primary Input Section: Upload & Textarea */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-10 px-2">
-        <div className="lg:col-span-4 space-y-6">
+    <div className="space-y-12">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Drop Zone */}
+        <div className="lg:col-span-4">
            <div 
-            className={`h-full border-2 border-dashed rounded-[2.5rem] sm:rounded-[3rem] p-8 sm:p-12 transition-studio text-center cursor-pointer group flex flex-col items-center justify-center gap-6 sm:gap-8 min-h-[280px]
-              ${dragActive ? 'border-indigo-500 bg-indigo-50/50 scale-[1.01]' : 'border-slate-200 bg-white hover:border-indigo-400 hover:bg-slate-50/20 shadow-xl shadow-indigo-500/5'}
-              ${isDisabled ? 'opacity-50 pointer-events-none' : ''}
-            `}
-            onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={(e) => { e.preventDefault(); setDragActive(false); if (e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]); }}
-            onClick={() => document.getElementById('file-upload')?.click()}
-          >
-            <input type="file" id="file-upload" className="hidden" accept=".txt,.md,.pdf,.docx" onChange={(e) => e.target.files?.[0] && processFile(e.target.files[0])} disabled={isDisabled} />
-            
-            <div className="p-6 sm:p-8 bg-indigo-50 rounded-[2rem] text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-studio shadow-inner relative">
-              {isProcessing ? <Loader2 className="h-10 w-10 sm:h-12 sm:w-12 animate-spin" /> : <UploadCloud className="h-10 w-10 sm:h-12 sm:w-12" />}
-            </div>
-            
-            <div className="space-y-2">
-              <h3 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight uppercase font-heading">Bulk Scan</h3>
-              <p className="text-[11px] sm:text-sm text-slate-500 max-w-[250px] mx-auto font-medium">Batch process documents up to 500k words with high precision.</p>
-            </div>
-
-            <div className="flex items-center gap-2 px-6 py-2 bg-slate-900 text-white rounded-full text-[9px] sm:text-[10px] font-black uppercase tracking-widest">
-              <ShieldCheck className="w-3.5 h-3.5 text-indigo-400" />
-              Privacy Guard
-            </div>
-          </div>
+             onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+             onDragLeave={() => setIsDragging(false)}
+             onDrop={(e) => { e.preventDefault(); setIsDragging(false); e.dataTransfer.files?.[0] && processFile(e.dataTransfer.files[0]); }}
+             onClick={() => !isProcessing && document.getElementById('file-upload')?.click()} 
+             className={`h-full min-h-[480px] rounded-[3rem] p-12 text-center cursor-pointer group flex flex-col items-center justify-center gap-8 transition-all duration-500 border-2 ${isDragging ? 'bg-indigo-600 border-indigo-400 shadow-2xl shadow-indigo-200' : 'bg-white border-slate-100 hover:border-indigo-200 shadow-xl shadow-slate-100/50'}`}
+           >
+             <input type="file" id="file-upload" className="hidden" accept=".txt,.md,.pdf,.docx" onChange={(e) => e.target.files?.[0] && processFile(e.target.files[0])} disabled={isLoading || isProcessing} />
+             
+             <div className={`p-8 rounded-3xl transition-all duration-500 ${isDragging ? 'bg-white text-indigo-600' : isProcessing ? 'bg-indigo-600 text-white shadow-xl' : 'bg-slate-50 text-slate-400 group-hover:bg-indigo-600 group-hover:text-white group-hover:-translate-y-2'}`}>
+               {isProcessing ? <Loader2 className="h-12 w-12 animate-spin" /> : <UploadCloud className="h-12 w-12" />}
+             </div>
+             
+             <div className="space-y-4">
+                <h3 className={`text-2xl font-black uppercase tracking-tight transition-colors font-heading ${isDragging ? 'text-white' : 'text-slate-900'}`}>
+                    {isProcessing ? 'Processing' : 'Institutional Data'}
+                </h3>
+                <p className={`text-[10px] font-bold uppercase tracking-[0.2em] max-w-[220px] mx-auto leading-relaxed transition-colors ${isDragging ? 'text-indigo-100' : 'text-slate-400'}`}>
+                    {parsingMsg || 'PDF, DOCX, or MD up to 100 pages. Forensic audit begins on drop.'}
+                </p>
+             </div>
+           </div>
         </div>
 
-        <div className="lg:col-span-8 bg-white rounded-[2.5rem] sm:rounded-[3.5rem] p-1.5 sm:p-2 shadow-2xl border border-slate-200">
-           <div className="bg-white p-4 sm:p-10 rounded-[2rem] sm:rounded-[3rem] relative">
-            <textarea
-              className="w-full h-[350px] sm:h-[550px] p-6 sm:p-10 bg-slate-50/40 border border-slate-100 rounded-[2rem] focus:ring-8 focus:ring-indigo-500/5 focus:border-indigo-400 outline-none resize-none text-slate-800 placeholder:text-slate-400 text-base sm:text-xl leading-relaxed transition-studio scrollbar-thin font-medium"
-              placeholder="Paste your content DNA here... Verifying facts, neutralizing signatures, and optimizing readability in one pass."
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              disabled={isDisabled}
-            />
+        {/* Neural Terminal Area */}
+        <div className="lg:col-span-8">
+          <div className="bg-slate-900 rounded-[3rem] p-1 shadow-2xl relative overflow-hidden h-full border border-white/5">
+            <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent pointer-events-none"></div>
             
-            <div className="mt-6 sm:mt-10 flex flex-col md:flex-row justify-between items-center gap-6">
-              <div className="w-full md:w-auto flex items-center gap-4 px-6 py-3 bg-slate-100/50 rounded-2xl border border-slate-200/50">
-                <FileText className="h-5 w-5 text-indigo-500" />
-                <div className="flex flex-col">
-                  <span className="text-[8px] sm:text-[9px] font-black text-slate-400 uppercase tracking-widest">Document Density</span>
-                  <span className="text-xs sm:text-sm font-black text-slate-800 tracking-tighter">
-                    {wordCount.toLocaleString()} Words
-                  </span>
-                </div>
+            <div className="p-10 flex flex-col h-full relative z-10">
+              <div className="flex items-center justify-between mb-8">
+                  <div className="flex items-center gap-4">
+                      <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 neural-pulse"></div>
+                      <span className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Forensic Terminal v14.5</span>
+                  </div>
               </div>
+
+              <textarea 
+                  className="w-full flex-1 min-h-[380px] p-8 bg-transparent outline-none resize-none text-slate-100 text-xl leading-relaxed transition-all placeholder:text-slate-700 font-serif-doc" 
+                  placeholder="Paste academic documents or claims for a zero-trace forensic audit..." 
+                  value={inputText} 
+                  onChange={(e) => setInputText(e.target.value)} 
+                  disabled={isLoading || isProcessing} 
+              />
               
-              <button
-                  onClick={handleTextSubmit}
-                  disabled={isDisabled || inputText.trim().length < 10}
-                  className="w-full md:w-auto px-8 sm:px-14 py-4 sm:py-5 bg-indigo-600 text-white font-black uppercase tracking-[0.2em] rounded-2xl hover:bg-indigo-700 disabled:opacity-50 transition-studio shadow-2xl shadow-indigo-100 flex items-center justify-center gap-3 sm:gap-4 active:scale-95 group text-sm sm:text-base font-heading"
-              >
-                  {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5 group-hover:rotate-12 transition-studio" />}
-                  Launch Deep Scan
-              </button>
+              <div className="mt-8 pt-8 border-t border-white/5 flex flex-col md:flex-row justify-between items-center gap-8">
+                <div className="flex flex-col gap-3 w-full md:w-80">
+                  <div className="flex items-center justify-between px-2">
+                      <div className="flex items-center gap-2 text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                          <Activity className="h-3.5 w-3.5 text-indigo-500" />
+                          Institutional Buffer
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-300">{wordCount.toLocaleString()} Words</span>
+                  </div>
+                  <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full transition-all duration-1000 bg-indigo-500 shadow-[0_0_15px_rgba(79,70,229,0.5)]" style={{ width: `${progressPercent}%` }}></div>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => inputText.trim().length > 10 && onTextLoaded(inputText, 'Studio Input')} 
+                  disabled={isLoading || isProcessing || inputText.trim().length < 10} 
+                  className="w-full md:w-auto px-12 py-5 bg-indigo-600 text-white font-black uppercase tracking-[0.2em] rounded-2xl hover:bg-indigo-500 disabled:opacity-30 transition-all shadow-2xl flex items-center justify-center gap-4 group text-xs"
+                >
+                    {isLoading ? <Loader2 className="animate-spin w-4 h-4" /> : <Sparkles className="w-4 h-4" />} 
+                    Analyze & Humanize
+                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
-
-      {/* Feature Card Grid: Capabilities Discovery */}
-      <div className="space-y-8 px-2">
-        <div className="flex items-center gap-4">
-           <div className="h-px flex-1 bg-slate-200"></div>
-           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em] font-heading">Forensic Suite Capabilities</h4>
-           <div className="h-px flex-1 bg-slate-200"></div>
-        </div>
-        <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          {FEATURE_CARDS.map((card, idx) => (
-            <div key={idx} className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all group">
-              <div className={`p-3 sm:p-4 bg-${card.color}-50 text-${card.color}-600 rounded-2xl w-fit mb-4 sm:mb-6 group-hover:bg-${card.color}-600 group-hover:text-white transition-colors`}>
-                {card.icon}
-              </div>
-              <h3 className="text-lg sm:text-xl font-bold text-slate-900 mb-2 sm:mb-3 flex items-center gap-2 font-heading">
-                {card.title} <Zap className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-300" />
-              </h3>
-              <p className="text-[11px] sm:text-sm text-slate-500 leading-relaxed font-medium">{card.desc}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
     </div>
   );
 };

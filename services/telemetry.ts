@@ -1,6 +1,4 @@
-
-
-import { AppStats, LogEntry, LogType, TimeRange } from '../types';
+import { AppStats, LogEntry, LogType, TimeRange, RewriteFeedback } from '../types';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = "https://huugzacwzjqweugfryde.supabase.co";
@@ -20,6 +18,29 @@ try {
 
 export const Telemetry = {
   isConnected: () => isSupabaseEnabled && !!supabase,
+
+  logRewriteFeedback: async (feedback: RewriteFeedback) => {
+    if (!supabase) return;
+    try {
+      // Log to general logs for audit
+      await Telemetry.addLogLocal('REWRITE_QUALITY', `Rating: ${feedback.rating}/5 from ${feedback.firstName} (${feedback.email})`);
+      
+      // Log to dedicated feedback table
+      const { error } = await supabase.from('plagiafix_feedback').insert({
+        first_name: feedback.firstName,
+        email: feedback.email,
+        rating: feedback.rating,
+        comment: feedback.comment,
+        original_score: feedback.originalScore,
+        fixed_score: feedback.fixedScore
+      });
+      
+      if (error) throw error;
+    } catch (e) {
+      console.error("Feedback logging failed:", e);
+      throw e;
+    }
+  },
 
   getGroundTruthStats: async (): Promise<{ stats: AppStats, error?: any }> => {
     if (!supabase) return { stats: { totalScans: 0, totalFixes: 0, totalErrors: 0, totalVisits: 0, tokensUsedEstimate: 0, lastActive: "" }, error: "Offline" };
@@ -127,7 +148,8 @@ export const Telemetry = {
             const match = log.details.match(/\[([A-Z]{2})\]/);
             if (match) {
                 const code = match[1];
-                countries[code] = (counts[code] || 0) + 1;
+                // Fix: 'counts' was not defined in this scope, changed to 'countries'
+                countries[code] = (countries[code] || 0) + 1;
             }
         });
         return Object.entries(countries)
@@ -171,7 +193,6 @@ export const Telemetry = {
   logError: async (msg: string) => { Telemetry.addLogLocal('ERROR', msg); },
   logShare: async (platform: string) => { Telemetry.addLogLocal('SHARE', `Shared results to ${platform}`); },
   
-  // Fixed: Added logFeedback method to support health check feedback logging
   logFeedback: async (rating: number, msg: string) => { 
     await Telemetry.addLogLocal('FEEDBACK', `Rating: ${rating}/5 | Msg: ${msg}`); 
   }

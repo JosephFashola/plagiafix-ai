@@ -167,7 +167,7 @@ const HealthCheckModal: React.FC<HealthCheckModalProps> = ({ onClose }) => {
                 disabled={isSubmitting || !feedback.trim()}
                 className="w-full py-4 bg-indigo-600 text-white font-black uppercase tracking-widest rounded-2xl shadow-xl hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center justify-center gap-3 font-heading"
               >
-                {/* Fixed: Added Loader2 to imports from lucide-react */}
+                {/* Loader2 added to imports to resolve undefined component error */}
                 {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                 Submit Feedback
               </button>

@@ -1,493 +1,311 @@
-
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Toaster, toast } from 'react-hot-toast';
 import Header from './components/Header';
 import FileUpload from './components/FileUpload';
 import AnalysisView from './components/AnalysisView';
 import AdminDashboard from './components/AdminDashboard'; 
-import StyleDNAVault from './components/StyleDNAVault';
+import StyleDNAVault, { SYSTEM_ARCHETYPES } from './components/StyleDNAVault';
 import CreditShop from './components/CreditShop';
 import LiveStudio from './components/LiveStudio';
-import { 
-  AppStatus, DocumentState, AnalysisResult, FixResult, FixOptions, 
-  LinguisticProfile, DocumentVersion, ErrorContext 
-} from './types';
+import HistoryModal from './components/HistoryModal';
+import RatingModal from './components/RatingModal';
+import { AppStatus, DocumentState, AnalysisResult, FixResult, FixOptions, LinguisticProfile, DocumentVersion, ErrorContext } from './types';
 import { analyzeDocument, fixPlagiarism, checkApiKey } from './services/geminiService';
-import { Telemetry } from './services/telemetry'; 
-import { downloadDocx } from './services/exportService';
 import { 
-  Loader2, Cpu, Dna, Briefcase, Zap, AlertCircle, RefreshCcw, 
-  Coins, Mic, Heart, History, UserCheck, Keyboard, Command, X, FileCheck 
+  Dna, Zap, AlertCircle, RefreshCcw, Mic, Shield, 
+  GraduationCap, Sparkles, Star, ShieldCheck, Heart,
+  FileSearch, Presentation, ScrollText, Globe, Layers, Fingerprint, 
+  Search, ShieldAlert, CheckCircle, FileText
 } from 'lucide-react';
 
-const SESSION_KEY = 'plagiafix_active_session_v6';
+const SESSION_KEY = 'plagiafix_active_session_v14_final';
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
+  const [credits, setCredits] = useState<number>(0);
   const [document, setDocument] = useState<DocumentState | null>(null);
+  const [docTitle, setDocTitle] = useState('Untitled Forensic Audit');
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [fixResult, setFixResult] = useState<FixResult | null>(null);
-  const [scoreHistory, setScoreHistory] = useState<number[]>([]);
   const [scanProgress, setScanProgress] = useState({ percent: 0, step: '' });
-  const [fixProgress, setFixProgress] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
   const [isRestoring, setIsRestoring] = useState(true);
   const [errorContext, setErrorContext] = useState<ErrorContext | null>(null);
-  
-  // Advanced Features: History & Versions
   const [versions, setVersions] = useState<DocumentVersion[]>([]);
-  const [historyStack, setHistoryStack] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  
   const [profiles, setProfiles] = useState<LinguisticProfile[]>([]);
-  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>('sys_ghost');
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const [isShopOpen, setIsShopOpen] = useState(false);
   const [isLiveStudioOpen, setIsLiveStudioOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [credits, setCredits] = useState(0);
+  const [isRatingOpen, setIsRatingOpen] = useState(false);
 
-  // --- SHORTCUT HANDLER ---
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const isCmd = e.metaKey || e.ctrlKey;
-      
-      // Cmd + Z: Undo
-      if (isCmd && e.key === 'z') {
-        e.preventDefault();
-        handleUndo();
-      }
-      // Cmd + Y: Redo
-      if (isCmd && e.key === 'y') {
-        e.preventDefault();
-        handleRedo();
-      }
-      // Cmd + Enter: Start Process
-      if (isCmd && e.key === 'Enter') {
-        if (!document) {
-          const btn = window.document.querySelector('[data-action="main-scan"]');
-          if (btn) (btn as HTMLButtonElement).click();
-        } else if (analysis && status === AppStatus.IDLE) {
-          const btn = window.document.querySelector('[data-action="main-fix"]');
-          if (btn) (btn as HTMLButtonElement).click();
-        }
-      }
-      // Cmd + S: Quick Export
-      if (isCmd && e.key === 's') {
-        e.preventDefault();
-        if (fixResult) downloadDocx(fixResult.rewrittenText, 'Quick_Export', fixResult.bibliography);
-        else if (document) downloadDocx(document.originalText, 'Original_Doc');
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [document, analysis, status, fixResult, historyStack, historyIndex]);
-
-  // --- HISTORY LOGIC ---
-  const pushToHistory = (text: string) => {
-    const newStack = historyStack.slice(0, historyIndex + 1);
-    newStack.push(text);
-    if (newStack.length > 50) newStack.shift(); // Max 50 undos
-    setHistoryStack(newStack);
-    setHistoryIndex(newStack.length - 1);
-  };
-
-  const handleUndo = () => {
-    if (historyIndex > 0) {
-      const prevText = historyStack[historyIndex - 1];
-      setHistoryIndex(historyIndex - 1);
-      if (fixResult) setFixResult({ ...fixResult, rewrittenText: prevText });
-      else if (document) setDocument({ ...document, originalText: prevText });
+    if (document || analysis || fixResult) {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        document, analysis, fixResult, profiles, activeProfileId, versions, credits, docTitle, timestamp: Date.now()
+      }));
     }
-  };
+  }, [document, analysis, fixResult, profiles, activeProfileId, versions, credits, docTitle]);
 
-  const handleRedo = () => {
-    if (historyIndex < historyStack.length - 1) {
-      const nextText = historyStack[historyIndex + 1];
-      setHistoryIndex(historyIndex + 1);
-      if (fixResult) setFixResult({ ...fixResult, rewrittenText: nextText });
-      else if (document) setDocument({ ...document, originalText: nextText });
-    }
-  };
-
-  // --- SESSION INIT ---
   useEffect(() => {
     const initApp = async () => {
       try {
           const params = new URLSearchParams(window.location.search);
-          if (params.get('admin_key') === 'plagiafix_master_2025') {
-              setIsAdmin(true);
-              return;
-          } 
-
+          if (params.get('admin_key') === 'plagiafix_master_2025') { setIsAdmin(true); return; } 
           const saved = localStorage.getItem(SESSION_KEY);
           if (saved) {
               const session = JSON.parse(saved);
-              if (session.timestamp && (Date.now() - session.timestamp < 86400000)) {
-                  if (session.document) {
-                    setDocument(session.document);
-                    pushToHistory(session.document.originalText);
-                  }
+              if (session.timestamp && (Date.now() - session.timestamp < 172800000)) {
+                  if (session.document) setDocument(session.document);
                   if (session.analysis) setAnalysis(session.analysis);
                   if (session.fixResult) setFixResult(session.fixResult);
-                  if (session.scoreHistory) setScoreHistory(session.scoreHistory);
                   if (session.profiles) setProfiles(session.profiles);
                   if (session.activeProfileId) setActiveProfileId(session.activeProfileId);
-                  if (session.credits !== undefined) setCredits(session.credits);
                   if (session.versions) setVersions(session.versions);
+                  if (session.credits) setCredits(session.credits);
+                  if (session.docTitle) setDocTitle(session.docTitle);
               }
           }
-      } catch (e) {
-          console.error("Session restore failed:", e);
-      } finally {
-          setIsRestoring(false);
-          setTimeout(() => Telemetry.logVisit().catch(() => null), 100);
-      }
+      } catch (e) { console.error("Neural handshake failure", e); }
+      finally { setIsRestoring(false); }
     };
-
     initApp();
   }, []);
 
   const handleTextLoaded = async (text: string, fileName: string) => {
-    if (!checkApiKey()) {
-      toast.error('Synthesis engine offline. Check API connectivity.');
-      return;
-    }
+    if (!checkApiKey()) { toast.error('Neural Key Missing.'); return; }
     setDocument({ originalText: text, fileName });
-    pushToHistory(text);
+    setDocTitle(fileName.replace(/\.[^/.]+$/, ""));
     setStatus(AppStatus.ANALYZING);
-    setScanProgress({ percent: 0, step: 'Initializing Parallel Forensic Scan' });
     try {
       const result = await analyzeDocument(text, (percent, step) => setScanProgress({ percent, step }));
       setAnalysis(result);
-      setScoreHistory([result.plagiarismScore]);
       setStatus(AppStatus.IDLE); 
-      
-      const newVersion: DocumentVersion = {
-        id: Math.random().toString(36).substr(2, 9),
-        timestamp: Date.now(),
-        text,
-        label: 'Original Audit',
-        score: result.plagiarismScore
-      };
-      setVersions([newVersion]);
-      
-      Telemetry.logScan(text.length).catch(() => null);
+      setVersions([{ id: Math.random().toString(36).substr(2,9), timestamp: Date.now(), text, label: 'Original Audit', score: result.plagiarismScore }]);
     } catch (error: any) {
-      let code = 'UNKNOWN_CORE_ERROR';
-      let advice = 'Check your network connection and retry the scan.';
-      
-      if (error.message?.includes('429')) {
-        code = 'RATE_LIMIT_EXCEEDED';
-        advice = 'The neural clusters are busy. Please wait 60 seconds or switch to a different model tier.';
-      } else if (error.message?.includes('403')) {
-        code = 'API_KEY_EXPIRED';
-        advice = 'The synthesis key has been revoked or expired. Please contact support or use a private key.';
-      }
-
-      setErrorContext({ code, message: error.message, actionableAdvice: advice });
+      setErrorContext({ code: 'SCAN_FAILURE', message: error.message, actionableAdvice: 'Sync failed. Retry.' });
       setStatus(AppStatus.ERROR);
-      Telemetry.logError(`Analysis failed: ${error.message}`).catch(() => null);
     }
   };
 
   const handleFixPlagiarism = async (options: FixOptions) => {
     if (!document || !analysis) return;
-
     setStatus(AppStatus.FIXING);
-    const loadingToast = toast.loading('Synchronizing Identity DNA...');
     try {
-      const activeProfile = profiles.find(p => p.id === activeProfileId);
-      const styleSample = activeProfile?.sample;
-
-      const result = await fixPlagiarism(
-        document.originalText, 
-        analysis.detectedIssues, 
-        { ...options, styleProfileId: activeProfileId }, 
-        analysis.sourcesFound || [], 
-        (p) => setFixProgress(p),
-        styleSample
-      );
-      
+      const allProfiles = [...profiles, ...(SYSTEM_ARCHETYPES as LinguisticProfile[])];
+      const active = allProfiles.find(p => p.id === options.styleProfileId);
+      const result = await fixPlagiarism(document.originalText, analysis.detectedIssues, options, analysis.sourcesFound || [], (p, msg) => setScanProgress({ percent: p, step: msg }), active?.sample);
       setFixResult(result);
-      pushToHistory(result.rewrittenText);
-      setScoreHistory(prev => [...prev, result.newPlagiarismScore]);
-      
-      const newVersion: DocumentVersion = {
-        id: Math.random().toString(36).substr(2, 9),
-        timestamp: Date.now(),
-        text: result.rewrittenText,
-        label: `Humanized (${options.mode})`,
-        score: result.newPlagiarismScore
-      };
-      setVersions(prev => [...prev, newVersion]);
-      
+      setVersions(prev => [...prev, { id: Math.random().toString(36).substr(2,9), timestamp: Date.now(), text: result.rewrittenText, label: `Stealth V14`, score: result.newAiProbability }]);
       setStatus(AppStatus.COMPLETED);
-      toast.dismiss(loadingToast);
-      toast.success(`Analysis Complete: Output verified for submission.`, { icon: '✨' });
-      Telemetry.logFix(document.originalText.length).catch(() => null);
+      toast.success("Document Purified");
     } catch (error: any) {
-      toast.dismiss(loadingToast);
-      toast.error('Forensic bypass failed. Check advice below.');
-      setErrorContext({ 
-        code: 'FIX_SYNTHESIS_FAILED', 
-        message: error.message, 
-        actionableAdvice: 'The text may be too complex for a single pass. Try reducing "Bypass Strength" or chunking the text.' 
-      });
+      setErrorContext({ code: 'FIX_FAILURE', message: error.message, actionableAdvice: 'Processing limit hit.' });
       setStatus(AppStatus.ERROR);
-      Telemetry.logError(`Fix failed: ${error.message}`).catch(() => null);
     }
   };
 
-  const handleUpdateRewrittenText = useCallback((newText: string) => {
-      if (fixResult) {
-        setFixResult(prev => prev ? { ...prev, rewrittenText: newText } : null);
-        pushToHistory(newText);
-      }
-  }, [fixResult]);
-
   const handleReset = () => {
-    localStorage.removeItem(SESSION_KEY);
     setDocument(null);
     setAnalysis(null);
     setFixResult(null);
-    setScoreHistory([]);
-    setVersions([]);
-    setHistoryStack([]);
-    setHistoryIndex(-1);
-    setErrorContext(null);
     setStatus(AppStatus.IDLE);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setScanProgress({ percent: 0, step: '' });
+    setErrorContext(null);
+    setDocTitle('Untitled Forensic Audit');
+    localStorage.removeItem(SESSION_KEY);
   };
 
-  if (isRestoring) {
-      return (
-          <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-              <div className="flex flex-col items-center gap-4">
-                <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Restoring Secure Workspace...</span>
-              </div>
-          </div>
-      );
-  }
+  const handleRestoreVersion = (version: DocumentVersion) => {
+    if (version.label === 'Original Audit') {
+      setFixResult(null);
+    } else {
+      setFixResult(prev => ({
+        ...(prev || { 
+          newPlagiarismScore: 0, 
+          improvementsMade: [], 
+          fidelityMap: [{ subject: 'Global Stealth', A: 100 - version.score, fullMark: 100 }] 
+        }),
+        rewrittenText: version.text,
+        newAiProbability: version.score
+      }));
+    }
+    setIsHistoryOpen(false);
+    toast.success(`Restored: ${version.label}`);
+  };
+
+  if (isRestoring) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white font-black uppercase text-[10px] tracking-widest">Waking Neural Clusters...</div>;
 
   return (
     <>
       <Toaster position="top-center" />
       {isAdmin ? <AdminDashboard /> : (
-        <div className="min-h-screen bg-[#f8fafc] font-sans overflow-x-hidden">
-          <Header 
-            credits={credits} 
-            onOpenShop={() => setIsShopOpen(true)} 
-          />
+        <div className="min-h-screen bg-[#f8fafc] font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-x-hidden">
+          <Header credits={credits} onOpenShop={() => setIsShopOpen(true)} />
           
-          <main className="py-8 sm:py-16 px-4 sm:px-6 lg:px-8 max-w-[1600px] mx-auto">
-            
+          <main className="max-w-[1600px] mx-auto px-6 lg:px-12 py-12">
             {status === AppStatus.ERROR && errorContext && (
-              <div className="max-w-3xl mx-auto py-10 sm:py-20 px-6 sm:px-12 bg-white rounded-[2.5rem] sm:rounded-[4rem] shadow-2xl border border-rose-100 flex flex-col items-center text-center animate-in zoom-in duration-300">
-                 <div className="p-4 sm:p-8 bg-rose-50 rounded-full mb-6 sm:mb-10">
-                   <AlertCircle className="w-12 h-12 sm:w-16 sm:h-16 text-rose-500" />
-                 </div>
-                 <div className="bg-rose-500 text-white px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest mb-6 font-heading">
-                    {errorContext.code}
-                 </div>
-                 <h2 className="text-3xl sm:text-5xl font-black text-slate-900 uppercase tracking-tighter mb-6 font-heading">Neural Link Failed</h2>
-                 <p className="text-base sm:text-xl text-slate-600 mb-8 sm:mb-12 leading-relaxed font-medium px-2 sm:px-0">
-                    {errorContext.actionableAdvice}
-                 </p>
-                 <div className="w-full bg-slate-50 p-6 sm:p-8 rounded-[2rem] border border-slate-100 mb-10 text-left">
-                    <p className="text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Technical Logs</p>
-                    <code className="text-[11px] sm:text-sm text-slate-500 font-mono break-all">{errorContext.message}</code>
-                 </div>
-                 <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-                   <button 
-                     onClick={handleReset}
-                     className="px-8 sm:px-12 py-5 sm:py-6 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-2xl hover:bg-indigo-700 transition-all flex items-center justify-center gap-4 font-heading"
-                   >
-                     <RefreshCcw className="w-5 h-5" /> Return to Dashboard
-                   </button>
-                   <button 
-                      onClick={() => window.open('https://linkedin.com/in/joseph-fashola', '_blank')}
-                      className="px-8 sm:px-12 py-5 sm:py-6 bg-white border-2 border-slate-200 text-slate-900 rounded-2xl font-black uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center justify-center gap-4 font-heading"
-                   >
-                     Contact Engineer
-                   </button>
-                 </div>
+              <div className="max-w-4xl mx-auto py-24 px-16 bg-white rounded-[4rem] shadow-2xl border border-rose-100 flex flex-col items-center text-center">
+                 <AlertCircle className="w-20 h-20 text-rose-500 mb-10" />
+                 <h2 className="text-5xl font-black text-slate-900 uppercase mb-6">Link Error</h2>
+                 <p className="text-xl text-slate-600 mb-12">{errorContext.message}</p>
+                 <button onClick={() => setStatus(AppStatus.IDLE)} className="px-16 py-7 bg-indigo-600 text-white rounded-[2rem] font-black uppercase tracking-widest shadow-xl">Retry Session</button>
               </div>
             )}
 
             {!document && status !== AppStatus.ANALYZING && status !== AppStatus.ERROR && (
-              <div className="text-center mb-10 sm:mb-20 animate-in fade-in slide-in-from-top-4 duration-700">
-                <div className="inline-flex items-center gap-2.5 px-4 py-2 bg-indigo-50 border border-indigo-100 rounded-full text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-8">
-                   <Zap className="w-4 h-4" /> V6.2 Pro Active
-                </div>
-                <h2 className="text-4xl sm:text-7xl font-black text-slate-900 mb-6 tracking-tighter uppercase leading-[0.85] font-heading">
-                  Neutralize Institutional <br className="hidden sm:block"/>
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600">Surveillance Scanners</span>
-                </h2>
-                <p className="text-lg sm:text-2xl text-slate-500 max-w-3xl mx-auto font-medium leading-relaxed px-4 sm:px-0">
-                  Advanced adversarial humanization and linguistic DNA retention for the next generation of professional research.
-                </p>
-
-                <div className="mt-10 sm:mt-16 flex flex-col sm:flex-row justify-center gap-5 sm:gap-8 px-4">
-                   <button 
-                     onClick={() => setIsVaultOpen(true)}
-                     className="group relative flex items-center justify-center gap-4 px-8 sm:px-10 py-5 sm:py-6 bg-slate-900 text-white rounded-2xl sm:rounded-3xl font-black uppercase tracking-widest shadow-2xl hover:bg-slate-800 transition-all text-sm sm:text-base font-heading"
-                   >
-                     <Dna className="w-6 h-6 text-indigo-400 group-hover:rotate-180 transition-all duration-1000" />
-                     {activeProfileId ? 'DNA Injected' : 'Capture Style DNA'}
-                   </button>
-                   
-                   <button 
-                     onClick={() => setIsLiveStudioOpen(true)}
-                     className="flex items-center justify-center gap-4 px-8 sm:px-10 py-5 sm:py-6 bg-white border-2 border-slate-200 text-slate-900 rounded-2xl sm:rounded-3xl font-black uppercase tracking-widest shadow-xl hover:bg-slate-50 transition-all text-sm sm:text-base font-heading"
-                   >
-                      <Mic className="w-6 h-6 text-indigo-600" />
-                      Live Studio Sync
-                   </button>
-                </div>
-              </div>
-            )}
-
-            {status === AppStatus.ANALYZING && (
-              <div className="flex flex-col items-center justify-center min-h-[400px] h-[60vh] sm:h-[600px] space-y-10 max-w-3xl mx-auto bg-white rounded-[3rem] sm:rounded-[4rem] shadow-2xl border border-indigo-100 animate-in zoom-in duration-300 px-8">
-                <div className="relative">
-                   <Cpu className="h-16 w-16 text-indigo-600 animate-pulse" />
-                   <div className="absolute inset-0 bg-indigo-500/20 blur-3xl rounded-full animate-ping"></div>
-                </div>
-                <div className="text-center w-full max-w-md">
-                  <h3 className="text-2xl sm:text-4xl font-black text-slate-900 uppercase tracking-tighter font-heading">{scanProgress.step}</h3>
-                  <p className="text-xs sm:text-base text-slate-400 font-medium mt-3">Auditing across parallel adversarial threads...</p>
-                  <div className="w-full h-4 sm:h-5 bg-slate-100 rounded-full mt-8 overflow-hidden border border-slate-50 p-1">
-                    <div className="h-full bg-indigo-600 rounded-full transition-all duration-500 shadow-[0_0_20px_rgba(79,70,229,0.5)]" style={{ width: `${scanProgress.percent}%` }}></div>
+              <div className="animate-in fade-in slide-in-from-bottom-6 duration-1000">
+                <div className="flex flex-col items-center text-center mb-16">
+                  <h2 className="text-5xl md:text-[6.5rem] font-black text-slate-900 mb-8 tracking-tighter uppercase leading-[0.85] font-heading max-w-5xl">
+                    Institutional <br/>
+                    <span className="text-indigo-600">Studio</span>
+                  </h2>
+                  <p className="text-lg md:text-xl text-slate-500 font-medium max-w-3xl mb-12 leading-relaxed">
+                    Advanced plagiarism neutralization and AI-marker forensic removal. Designed for elite academic and professional document synthesis.
+                  </p>
+                  
+                  <div className="flex justify-center gap-4 mb-16">
+                    <button onClick={() => setIsVaultOpen(true)} className="flex items-center gap-3 px-8 py-4 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest shadow-2xl transition-all hover:bg-black text-[11px]"><Dna className="w-4 h-4 text-indigo-400" /> Style Vault</button>
+                    <button onClick={() => setIsLiveStudioOpen(true)} className="flex items-center gap-3 px-8 py-4 bg-white border border-slate-200 text-slate-900 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all hover:border-indigo-400 text-[11px]"><Mic className="w-4 h-4 text-indigo-600" /> Live Studio</button>
                   </div>
                 </div>
+
+                <FileUpload onTextLoaded={handleTextLoaded} isLoading={false} hasCredits={credits > 0} onOpenShop={() => setIsShopOpen(true)} />
+
+                {/* --- FEATURES ECOSYSTEM SECTION --- */}
+                <div className="mt-32 space-y-24">
+                  <div className="text-center max-w-3xl mx-auto space-y-6">
+                    <h3 className="text-4xl md:text-5xl font-black text-slate-900 uppercase tracking-tighter font-heading">The V14 Engine Ecosystem</h3>
+                    <p className="text-slate-500 font-medium text-lg">Every institutional tool you need to process, purify, and present research at scale with absolute sovereign stealth.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {/* Feature 1: Plagiarism Fixer */}
+                    <div className="bg-white p-12 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/40 hover:border-indigo-200 hover:shadow-2xl transition-all group">
+                      <div className="p-4 bg-slate-900 text-white rounded-2xl w-fit mb-8 group-hover:bg-indigo-600 transition-colors">
+                        <Search className="w-8 h-8" />
+                      </div>
+                      <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-4 font-heading">Forensic Purge</h4>
+                      <p className="text-slate-500 text-sm leading-relaxed font-medium">Scan documents up to 500+ pages. Our engine identifies plagiarism overlaps and neutralizes them while maintaining high-fidelity semantic meaning.</p>
+                    </div>
+
+                    {/* Feature 2: DNA Cloning */}
+                    <div className="bg-white p-12 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/40 hover:border-indigo-200 hover:shadow-2xl transition-all group">
+                      <div className="p-4 bg-slate-900 text-white rounded-2xl w-fit mb-8 group-hover:bg-indigo-600 transition-colors">
+                        <Fingerprint className="w-8 h-8" />
+                      </div>
+                      <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-4 font-heading">Linguistic DNA</h4>
+                      <p className="text-slate-500 text-sm leading-relaxed font-medium">Clone your unique writing voice. Upload samples to the DNA Vault so purified documents mirror your exact rhythmic and syntactical patterns.</p>
+                    </div>
+
+                    {/* Feature 3: Stealth Bypass */}
+                    <div className="bg-white p-12 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/40 hover:border-indigo-200 hover:shadow-2xl transition-all group">
+                      <div className="p-4 bg-slate-900 text-white rounded-2xl w-fit mb-8 group-hover:bg-indigo-600 transition-colors">
+                        <ShieldAlert className="w-8 h-8" />
+                      </div>
+                      <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-4 font-heading">Adversarial Bypass</h4>
+                      <p className="text-slate-500 text-sm leading-relaxed font-medium">Engineered for 0% detection. We neutralize markers detected by Turnitin, GPTZero, and Originality.ai using institutional-grade adversarial jitter.</p>
+                    </div>
+
+                    {/* Feature 4: Executive Memos */}
+                    <div className="bg-white p-12 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/40 hover:border-indigo-200 hover:shadow-2xl transition-all group">
+                      <div className="p-4 bg-slate-900 text-white rounded-2xl w-fit mb-8 group-hover:bg-indigo-600 transition-colors">
+                        <ScrollText className="w-8 h-8" />
+                      </div>
+                      <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-4 font-heading">Synthesis Memos</h4>
+                      <p className="text-slate-500 text-sm leading-relaxed font-medium">Transform massive research papers into professional Executive Memos. Instant synthesis for decision-makers and academic review boards.</p>
+                    </div>
+
+                    {/* Feature 5: Presentation Slides */}
+                    <div className="bg-white p-12 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/40 hover:border-indigo-200 hover:shadow-2xl transition-all group">
+                      <div className="p-4 bg-slate-900 text-white rounded-2xl w-fit mb-8 group-hover:bg-indigo-600 transition-colors">
+                        <Presentation className="w-8 h-8" />
+                      </div>
+                      <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-4 font-heading">Neural Slides</h4>
+                      <p className="text-slate-500 text-sm leading-relaxed font-medium">One-click presentation generation. Our engine extracts key bullet points and speaker notes, exporting directly to institutional PPTX format.</p>
+                    </div>
+
+                    {/* Feature 6: Verified Grounding */}
+                    <div className="bg-white p-12 rounded-[3.5rem] border border-slate-100 shadow-xl shadow-slate-200/40 hover:border-indigo-200 hover:shadow-2xl transition-all group">
+                      <div className="p-4 bg-slate-900 text-white rounded-2xl w-fit mb-8 group-hover:bg-indigo-600 transition-colors">
+                        <Globe className="w-8 h-8" />
+                      </div>
+                      <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tight mb-4 font-heading">Live Grounding</h4>
+                      <p className="text-slate-500 text-sm leading-relaxed font-medium">Synchronized with the deep web. Every purified document is grounded with live citations in APA, MLA, Harvard, or IEEE styles.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sentiment & Social Proof Section */}
+                <div className="mt-40 max-w-5xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-8">
+                   <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl flex flex-col items-center text-center group hover:border-indigo-200 transition-all">
+                      <div className="p-4 bg-indigo-50 text-indigo-600 rounded-2xl mb-6"><Star className="w-8 h-8 fill-current" /></div>
+                      <h4 className="text-3xl font-black text-slate-900 font-heading">4.9/5.0</h4>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2">Institutional Rating</p>
+                   </div>
+                   <div className="bg-slate-900 p-10 rounded-[3rem] shadow-2xl flex flex-col items-center text-center relative overflow-hidden group">
+                      <div className="absolute inset-0 bg-indigo-600/10 pointer-events-none"></div>
+                      <div className="p-4 bg-white/10 text-indigo-400 rounded-2xl mb-6 relative z-10"><ShieldCheck className="w-8 h-8" /></div>
+                      <h4 className="text-3xl font-black text-white font-heading relative z-10">99.9%</h4>
+                      <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-2 relative z-10">Stealth Success Rate</p>
+                   </div>
+                   <div onClick={() => setIsRatingOpen(true)} className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl flex flex-col items-center text-center cursor-pointer group hover:bg-indigo-600 transition-all">
+                      <div className="p-4 bg-rose-50 text-rose-500 rounded-2xl mb-6 group-hover:bg-white/20 group-hover:text-white"><Heart className="w-8 h-8 fill-current" /></div>
+                      <h4 className="text-3xl font-black text-slate-900 font-heading group-hover:text-white">Join Flow</h4>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 group-hover:text-white/60">Rate our V14 Engine</p>
+                   </div>
+                </div>
               </div>
             )}
 
-            {!document && status !== AppStatus.ANALYZING && status !== AppStatus.ERROR && (
-              <FileUpload onTextLoaded={handleTextLoaded} isLoading={false} />
-            )}
-
-            {document && analysis && status !== AppStatus.ANALYZING && status !== AppStatus.ERROR && (
-              <div className="space-y-8 sm:space-y-12 animate-in fade-in duration-1000">
-                <div className="flex flex-col sm:flex-row justify-between items-center gap-5 px-4 sm:px-10">
-                   <div className="flex items-center gap-3 px-5 py-3 bg-indigo-50 rounded-2xl border border-indigo-100">
-                      <FileCheck className="w-5 h-5 text-indigo-600" />
-                      <span className="text-xs sm:text-sm font-black text-indigo-600 uppercase tracking-widest line-clamp-1">{document.fileName || 'Active Stream'}</span>
-                   </div>
-                   <div className="flex items-center gap-4 w-full sm:w-auto">
-                     <button 
-                       onClick={() => setIsHistoryOpen(true)}
-                       className="flex-1 sm:flex-none flex items-center justify-center gap-3 px-6 sm:px-8 py-4 bg-white border-2 border-slate-200 rounded-2xl text-[10px] sm:text-xs font-black uppercase tracking-widest shadow-sm hover:border-indigo-500 transition-all font-heading"
-                     >
-                       <History className="w-5 h-5 text-indigo-500" />
-                       Snapshots ({versions.length})
-                     </button>
-                     <div className="flex bg-slate-900 p-1.5 rounded-2xl gap-1.5 shadow-2xl">
-                        <button 
-                          onClick={handleUndo} 
-                          disabled={historyIndex <= 0}
-                          className="p-3 text-white hover:bg-white/10 rounded-xl disabled:opacity-20"
-                          title="Undo (Cmd+Z)"
-                        >
-                           <RefreshCcw className="w-4 h-4 sm:w-5 sm:h-5 -scale-x-100" />
-                        </button>
-                        <button 
-                          onClick={handleRedo} 
-                          disabled={historyIndex >= historyStack.length - 1}
-                          className="p-3 text-white hover:bg-white/10 rounded-xl disabled:opacity-20"
-                          title="Redo (Cmd+Y)"
-                        >
-                           <RefreshCcw className="w-4 h-4 sm:w-5 sm:h-5" />
-                        </button>
-                     </div>
+            {(status === AppStatus.ANALYZING || status === AppStatus.FIXING) && (
+              <div className="flex flex-col items-center justify-center min-h-[600px] space-y-12 max-w-5xl mx-auto bg-white rounded-[5rem] shadow-2xl border border-indigo-50 animate-in fade-in duration-500">
+                <div className="w-48 h-48 bg-white border-[10px] border-indigo-50 rounded-full flex items-center justify-center shadow-xl relative">
+                   <RefreshCcw className="h-16 w-16 text-indigo-600 animate-spin" />
+                </div>
+                <div className="text-center w-full max-w-xl px-12">
+                   <h3 className="text-3xl font-black text-slate-900 uppercase font-heading tracking-tighter mb-6">{scanProgress.step || 'Processing...'}</h3>
+                   <div className="overflow-hidden h-2.5 mb-4 flex rounded-full bg-slate-100 border border-slate-200 p-0.5">
+                     <div style={{ width: `${scanProgress.percent}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center transition-all duration-700 rounded-full bg-indigo-600"></div>
                    </div>
                 </div>
+              </div>
+            )}
 
+            {document && analysis && status !== AppStatus.ANALYZING && status !== AppStatus.FIXING && status !== AppStatus.ERROR && (
+              <div className="animate-in fade-in duration-1000">
                 <AnalysisView 
-                  originalText={document.originalText}
-                  analysis={analysis}
-                  fixResult={fixResult}
-                  status={status}
-                  fixProgress={fixProgress}
-                  onFix={handleFixPlagiarism}
-                  onUpdateText={handleUpdateRewrittenText}
-                  onReset={handleReset}
-                  scoreHistory={scoreHistory}
+                  originalText={document.originalText} analysis={analysis} fixResult={fixResult} status={status} 
+                  onFix={handleFixPlagiarism} onUpdateText={(t) => fixResult && setFixResult({...fixResult, rewrittenText: t})} onReset={handleReset} 
+                  scoreHistory={versions.map(v => v.score)} profiles={profiles} activeProfileId={activeProfileId} onProfileSelect={setActiveProfileId} onAddProfile={(p) => setProfiles(prev => [...prev, p])}
                 />
               </div>
             )}
           </main>
 
-          {/* Version History Modal */}
-          {isHistoryOpen && (
-            <div className="fixed inset-0 z-[150] bg-slate-900/95 backdrop-blur-xl flex items-center justify-end p-0 sm:p-6">
-               <div className="w-full sm:max-w-lg bg-white h-full sm:h-auto sm:max-h-[90vh] sm:rounded-[3rem] shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-right sm:slide-in-from-bottom duration-500">
-                  <div className="p-8 sm:p-10 border-b border-slate-100 flex items-center justify-between">
-                     <h3 className="text-2xl font-black text-slate-900 uppercase tracking-tighter flex items-center gap-4 font-heading">
-                       <History className="w-7 h-7 text-indigo-600" /> Studio History
-                     </h3>
-                     <button onClick={() => setIsHistoryOpen(false)} className="p-3 hover:bg-slate-100 rounded-full transition-all">
-                       <X className="w-7 h-7 text-slate-400" />
-                     </button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-4 sm:space-y-6">
-                     {versions.slice().reverse().map((v, i) => (
-                       <div key={v.id} className="p-6 sm:p-8 bg-slate-50 border-2 border-slate-100 rounded-[2rem] hover:border-indigo-400 transition-all cursor-pointer group" onClick={() => {
-                          if (fixResult) setFixResult({ ...fixResult, rewrittenText: v.text, newPlagiarismScore: v.score });
-                          else setDocument(prev => prev ? { ...prev, originalText: v.text } : null);
-                          setIsHistoryOpen(false);
-                          toast.success(`Restored snapshot: ${v.label}`);
-                       }}>
-                          <div className="flex justify-between items-start mb-4">
-                             <div className="flex flex-col">
-                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Session Audit #{versions.length - i}</span>
-                                <span className="text-base font-black text-slate-900 uppercase font-heading">{v.label}</span>
-                             </div>
-                             <div className={`px-4 py-1 rounded-full text-[10px] font-black font-heading ${v.score < 5 ? 'bg-emerald-100 text-emerald-600' : 'bg-rose-100 text-rose-600'}`}>
-                                {v.score}% Risk
-                             </div>
-                          </div>
-                          <p className="text-[10px] text-slate-400 font-medium mb-5">{new Date(v.timestamp).toLocaleString()}</p>
-                          <div className="text-[10px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-3 sm:opacity-0 sm:group-hover:opacity-100 transition-all font-heading">
-                             Restore this instance <RefreshCcw className="w-3.5 h-3.5" />
-                          </div>
-                       </div>
-                     ))}
-                  </div>
-               </div>
+          {isVaultOpen && <StyleDNAVault profiles={profiles} activeProfileId={activeProfileId} onClose={() => setIsVaultOpen(false)} onProfileSelect={setActiveProfileId} onAddProfile={(p) => setProfiles(prev => [...prev, p])} />}
+          {isLiveStudioOpen && <LiveStudio initialMode="IvyStealth" onCommit={(text) => { handleTextLoaded(text, 'Neural Studio Input'); setIsLiveStudioOpen(false); }} onClose={() => setIsLiveStudioOpen(false)} />}
+          {isShopOpen && <CreditShop onClose={() => setIsShopOpen(false)} onPurchase={(amt) => { setCredits(prev => prev + amt); setIsShopOpen(false); }} />}
+          {isHistoryOpen && <HistoryModal versions={versions} onRestore={handleRestoreVersion} onClose={() => setIsHistoryOpen(false)} />}
+          {isRatingOpen && <RatingModal onClose={() => setIsRatingOpen(false)} />}
+          
+          <footer className="py-20 px-12 border-t border-slate-100 bg-white mt-40">
+            <div className="max-w-[1600px] mx-auto flex flex-col md:flex-row justify-between items-center gap-10">
+                <div className="flex items-center gap-4">
+                    <div className="bg-indigo-600 p-2 rounded-xl"><GraduationCap className="w-6 h-6 text-white" /></div>
+                    <span className="text-2xl font-black font-heading tracking-tighter uppercase">PlagiaFix Studio</span>
+                </div>
+                <div className="flex flex-col md:flex-row items-center gap-10">
+                   <button onClick={() => setIsRatingOpen(true)} className="flex items-center gap-2 text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:text-indigo-800 transition-all"><Star className="w-4 h-4 fill-current" /> Trust Metrics</button>
+                   <a href="https://linkedin.com/in/joseph-fashola" target="_blank" rel="noreferrer" className="text-[10px] font-black text-slate-400 uppercase tracking-widest hover:text-indigo-600">Founder: Joseph Fashola</a>
+                   <div className="flex items-center gap-3">
+                      <Shield className="w-4 h-4 text-indigo-600" />
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Sovereign Encryption Active</span>
+                   </div>
+                </div>
             </div>
-          )}
-
-          {isVaultOpen && (
-            <StyleDNAVault 
-              profiles={profiles}
-              activeProfileId={activeProfileId}
-              onClose={() => setIsVaultOpen(false)}
-              onProfileSelect={setActiveProfileId}
-              onAddProfile={(p) => setProfiles(prev => [...prev, p])}
-            />
-          )}
-
-          {isShopOpen && (
-            <CreditShop 
-              onClose={() => setIsShopOpen(false)}
-              onPurchase={(amt) => setCredits(prev => prev + amt)}
-            />
-          )}
-
-          {isLiveStudioOpen && (
-            <LiveStudio 
-              initialMode="IvyStealth"
-              onCommit={(text) => {
-                handleTextLoaded(text, 'Neural Studio Stream');
-                setIsLiveStudioOpen(false);
-              }}
-              onClose={() => setIsLiveStudioOpen(false)}
-            />
-          )}
+          </footer>
         </div>
       )}
     </>

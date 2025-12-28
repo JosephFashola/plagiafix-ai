@@ -1,5 +1,4 @@
 
-
 export enum AppStatus {
   IDLE = 'IDLE',
   ANALYZING = 'ANALYZING',
@@ -53,6 +52,9 @@ export interface SourceMatch {
   similarity: number;
   isVerified?: boolean;
   doi?: string;
+  author?: string;
+  year?: string;
+  fullCitation?: string;
 }
 
 export interface RadarMetric {
@@ -87,12 +89,18 @@ export type HumanizeMode = 'IvyStealth' | 'Cerebral' | 'Ghost' | 'Creative';
 
 export type CitationStyle = 'APA' | 'MLA' | 'Chicago' | 'Harvard' | 'IEEE' | 'Vancouver' | 'Nature' | 'Bluebook';
 
+export type ProfileCategory = 'SYSTEM' | 'CUSTOM';
+export type IdentityLevel = 'UNDERGRADUATE' | 'MSC' | 'POSTGRADUATE' | 'GHOST' | 'EXECUTIVE';
+
 export interface LinguisticProfile {
   id: string;
   name: string;
   sample: string;
   complexity: number;
   burstiness: number;
+  category: ProfileCategory;
+  level: IdentityLevel;
+  iconName?: string;
 }
 
 export interface FixOptions {
@@ -126,8 +134,16 @@ export interface DocumentState {
   fileName?: string;
 }
 
-// Fixed: Added FEEDBACK and SHARE to allowed log types
-export type LogType = 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'STYLE_SYNC' | 'CREDIT_TOPUP' | 'FEEDBACK' | 'SHARE';
+export type LogType = 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'STYLE_SYNC' | 'CREDIT_TOPUP' | 'FEEDBACK' | 'SHARE' | 'REWRITE_QUALITY';
+
+export interface RewriteFeedback {
+  firstName: string;
+  email: string;
+  rating: number;
+  comment: string;
+  originalScore?: number;
+  fixedScore?: number;
+}
 
 export interface AppStats {
   totalScans: number;
