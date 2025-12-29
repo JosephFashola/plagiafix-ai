@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, Tooltip } from 'recharts';
 import { HelpCircle, X, Info } from 'lucide-react';
@@ -41,9 +42,9 @@ const ScoreGauge: React.FC<ScoreGaugeProps> = ({ score, label, history = [] }) =
       {showInfo && (
         <div className="absolute inset-4 z-30 bg-white/95 dark:bg-slate-950/95 backdrop-blur-md p-8 rounded-[2rem] border border-slate-100 dark:border-slate-800 flex flex-col items-center justify-center text-center animate-in zoom-in duration-200 shadow-2xl">
            <button onClick={() => setShowInfo(false)} className="absolute top-6 right-6 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"><X className="w-5 h-5" /></button>
-           <h4 className="text-lg font-black text-slate-900 dark:text-white mb-3 uppercase tracking-tighter font-heading">Linguistic Entropy</h4>
+           <h4 className="text-lg font-black text-slate-900 dark:text-white mb-3 uppercase tracking-tighter font-heading">Writing Score</h4>
            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold leading-relaxed uppercase tracking-widest">
-             This represents the probability that a human auditor or institutional algorithm will flag the text.
+             This shows how likely your writing is to be flagged as AI or copied. Lower scores are better.
            </p>
            <div className="mt-6 w-full h-1 bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-500 rounded-full"></div>
         </div>
@@ -77,7 +78,7 @@ const ScoreGauge: React.FC<ScoreGaugeProps> = ({ score, label, history = [] }) =
         <div className="mt-6 text-center">
             <span className="block text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.2em] mb-1">{label}</span>
             <span className={`text-[9px] font-black uppercase tracking-widest px-3 py-1 rounded-full ${safeScore < 5 ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400' : safeScore < 20 ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400' : 'bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400'}`}>
-              {safeScore < 5 ? 'Elite Stealth' : safeScore < 20 ? 'Low Risk' : safeScore < 50 ? 'Medium Risk' : 'High Risk'}
+              {safeScore < 5 ? 'Perfectly Human' : safeScore < 20 ? 'Safe' : safeScore < 50 ? 'Medium Risk' : 'High Risk'}
             </span>
         </div>
       </div>

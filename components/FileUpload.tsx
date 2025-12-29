@@ -1,3 +1,4 @@
+
 import { 
   UploadCloud, Search, 
   Presentation, FileSearch, Mic,
@@ -15,7 +16,7 @@ interface FileUploadProps {
   onOpenShop: () => void;
 }
 
-const FREE_TIER_LIMIT = 100000; // Increased for "hundreds of pages" claim
+const FREE_TIER_LIMIT = 100000; 
 
 const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCredits, onOpenShop }) => {
   const [inputText, setInputText] = useState('');
@@ -31,11 +32,11 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
 
   const processFile = async (file: File) => {
     setIsProcessing(true);
-    setParsingMsg('Analyzing Document Structure...');
+    setParsingMsg('Reading your document...');
     try {
       const text = await parseFile(file, (msg) => setParsingMsg(msg));
       onTextLoaded(text, file.name);
-      toast.success("Institutional Dataset Synced");
+      toast.success("Document Uploaded");
     } catch (e: any) { 
       toast.error(e.message); 
     } finally { 
@@ -66,16 +67,16 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
              
              <div className="space-y-4">
                 <h3 className={`text-2xl font-black uppercase tracking-tight transition-colors font-heading ${isDragging ? 'text-white' : 'text-slate-900 dark:text-white'}`}>
-                    {isProcessing ? 'Processing' : 'Institutional Data'}
+                    {isProcessing ? 'Processing' : 'Your Document'}
                 </h3>
                 <p className={`text-[10px] font-bold uppercase tracking-[0.2em] max-w-[220px] mx-auto leading-relaxed transition-colors ${isDragging ? 'text-indigo-100' : 'text-slate-400 dark:text-slate-500'}`}>
-                    {parsingMsg || 'PDF, DOCX, or MD up to 100 pages. Forensic audit begins on drop.'}
+                    {parsingMsg || 'PDF, DOCX, or Text up to 100 pages. We check for AI and plagiarism.'}
                 </p>
              </div>
            </div>
         </div>
 
-        {/* Neural Terminal Area */}
+        {/* Text Area */}
         <div className="lg:col-span-8">
           <div className="bg-slate-900 dark:bg-slate-950 rounded-[3rem] p-1 shadow-2xl relative overflow-hidden h-full border border-white/5 dark:border-indigo-500/10 transition-all duration-500">
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-transparent pointer-events-none"></div>
@@ -84,13 +85,13 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
               <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-4">
                       <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 neural-pulse"></div>
-                      <span className="text-[10px] font-black text-slate-500 dark:text-slate-600 uppercase tracking-[0.3em]">Forensic Terminal v14.5</span>
+                      <span className="text-[10px] font-black text-slate-500 dark:text-slate-600 uppercase tracking-[0.3em]">Editor v14.5</span>
                   </div>
               </div>
 
               <textarea 
                   className="w-full flex-1 min-h-[380px] p-8 bg-transparent outline-none resize-none text-slate-100 text-xl leading-relaxed transition-all placeholder:text-slate-700 font-serif-doc" 
-                  placeholder="Paste academic documents or claims for a zero-trace forensic audit..." 
+                  placeholder="Paste your document or essay here to check it..." 
                   value={inputText} 
                   onChange={(e) => setInputText(e.target.value)} 
                   disabled={isLoading || isProcessing} 
@@ -101,7 +102,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
                   <div className="flex items-center justify-between px-2">
                       <div className="flex items-center gap-2 text-[9px] font-black text-slate-500 dark:text-slate-600 uppercase tracking-widest">
                           <Activity className="h-3.5 w-3.5 text-indigo-500" />
-                          Institutional Buffer
+                          Word Count
                       </div>
                       <span className="text-[9px] font-black uppercase tracking-widest text-slate-300 dark:text-slate-500">{wordCount.toLocaleString()} Words</span>
                   </div>
@@ -111,12 +112,12 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
                 </div>
 
                 <button 
-                  onClick={() => inputText.trim().length > 10 && onTextLoaded(inputText, 'Studio Input')} 
+                  onClick={() => inputText.trim().length > 10 && onTextLoaded(inputText, 'Editor Input')} 
                   disabled={isLoading || isProcessing || inputText.trim().length < 10} 
                   className="w-full md:w-auto px-12 py-5 bg-indigo-600 text-white font-black uppercase tracking-[0.2em] rounded-2xl hover:bg-indigo-500 disabled:opacity-30 transition-all shadow-2xl flex items-center justify-center gap-4 group text-xs"
                 >
                     {isLoading ? <Loader2 className="animate-spin w-4 h-4" /> : <Sparkles className="w-4 h-4" />} 
-                    Analyze & Humanize
+                    Scan & Fix Writing
                     <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </button>
               </div>

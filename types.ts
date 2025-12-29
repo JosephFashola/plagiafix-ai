@@ -36,6 +36,8 @@ export interface ParagraphAnalysis {
   matchType?: 'AI' | 'PLAGIARISM' | 'MIXED' | 'SAFE';
   evidence?: string;
   aiMarkers?: string[];
+  suggestedSourceId?: string;
+  groundingStrength?: number; // 0-100 verification confidence
 }
 
 export interface FactCheckResult {
@@ -46,6 +48,7 @@ export interface FactCheckResult {
 }
 
 export interface SourceMatch {
+  id: string;
   url: string;
   title: string;
   snippet: string;
@@ -55,6 +58,10 @@ export interface SourceMatch {
   author?: string;
   year?: string;
   fullCitation?: string;
+  impactScore?: number; // 0-100 based on journal/source quality
+  publisher?: string;
+  type?: 'JOURNAL' | 'BOOK' | 'WEB' | 'INSTITUTIONAL';
+  peerReviewMarker?: boolean;
 }
 
 export interface RadarMetric {
@@ -76,7 +83,7 @@ export interface ForensicData {
 export interface AnalysisResult {
   originalScore: number;
   plagiarismScore: number; 
-  aiProbability: number; // Added for dual-gauge support
+  aiProbability: number; 
   critique: string;
   detectedIssues: string[];
   paragraphBreakdown: ParagraphAnalysis[];
@@ -121,6 +128,7 @@ export interface FixResult {
   bibliography?: SourceMatch[];
   identityMatchScore?: number;
   fidelityMap?: RadarMetric[];
+  paragraphMappings?: { paragraphIndex: number, sourceId: string, groundingStrength: number }[];
 }
 
 export interface SlideContent {

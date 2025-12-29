@@ -14,7 +14,7 @@ try {
         isSupabaseEnabled = true;
     }
 } catch (e) {
-    console.error("Supabase Initialization Error:", e);
+    console.error("Supabase Initialization Error:", e instanceof Error ? e.message : JSON.stringify(e));
 }
 
 export const Telemetry = {
@@ -23,18 +23,21 @@ export const Telemetry = {
   logRewriteFeedback: async (feedback: RewriteFeedback) => {
     if (!supabase) return;
     try {
-      await Telemetry.addLogLocal('REWRITE_QUALITY', `Rating: ${feedback.rating}/5 from ${feedback.firstName} (${feedback.email})`);
-      const { error } = await supabase.from('plagiafix_feedback').insert({
-        first_name: feedback.firstName,
+      // Consolidating all feedback into the primary logs table since 'plagiafix_feedback' is missing in schema
+      const details = JSON.stringify({
+        user: feedback.firstName,
         email: feedback.email,
         rating: feedback.rating,
         comment: feedback.comment,
-        original_score: feedback.originalScore,
-        fixed_score: feedback.fixedScore
+        metrics: {
+          orig: feedback.originalScore,
+          fixed: feedback.fixedScore
+        }
       });
-      if (error) throw error;
+      
+      await Telemetry.addLogLocal('REWRITE_QUALITY', details);
     } catch (e) {
-      console.error("Feedback logging failed:", e);
+      console.error("Feedback logging failed:", e instanceof Error ? e.message : JSON.stringify(e));
       throw e;
     }
   },
