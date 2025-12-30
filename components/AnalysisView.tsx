@@ -193,7 +193,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
             <div className="absolute top-0 right-0 p-8 opacity-10"><ShieldAlert className="w-32 h-32" /></div>
             <div className="flex items-center gap-4 mb-8">
               <Info className="w-5 h-5 text-indigo-400" />
-              <h3 className="text-xs font-black uppercase tracking-widest font-heading">AI Analysis Feedback</h3>
+              <h3 className="text-xs font-black uppercase tracking-widest font-heading">Feedback</h3>
             </div>
             <div className="space-y-6 relative z-10">
               <p className="text-slate-400 text-sm font-medium leading-relaxed italic border-l-2 border-indigo-500 pl-6 py-2">"{analysis.critique}"</p>
@@ -208,7 +208,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
           {/* Social Section */}
           <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-8 border border-slate-100 dark:border-slate-800 shadow-xl space-y-6">
              <div className="flex items-center justify-between">
-                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Share Success</h4>
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Share Results</h4>
                 <div className="w-2 h-2 rounded-full bg-emerald-500 neural-pulse"></div>
              </div>
              
@@ -238,7 +238,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
       {/* Editor & Workspace */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         <div className="lg:col-span-3 space-y-6 sticky top-24">
-           {/* Document Options */}
+           {/* Writing Settings */}
            <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] p-8 border border-slate-100 dark:border-slate-800 shadow-xl dark:shadow-none space-y-8">
               <div className="flex items-center justify-between">
                 <h3 className="text-[10px] font-black text-slate-400 dark:text-slate-600 uppercase tracking-widest">Writing Settings</h3>
@@ -287,7 +287,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
               </div>
            </div>
 
-           {/* DOWNLOAD HUB */}
+           {/* Extra Tools */}
            <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white space-y-6 shadow-2xl border border-white/5">
               <div className="flex items-center justify-between">
                 <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Extra Tools</h3>
@@ -403,7 +403,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 border-b border-slate-100 dark:border-slate-800 pb-10">
                       <div className="space-y-2">
                         <h3 className="text-4xl font-black text-slate-900 dark:text-white font-heading uppercase tracking-tighter">Verified Sources</h3>
-                        <p className="text-slate-400 dark:text-slate-500 font-medium text-sm">Real academic references found through our live search audit.</p>
+                        <p className="text-slate-400 dark:text-slate-500 font-medium text-sm">Real academic references found through our search audit.</p>
                       </div>
                       <div className="flex items-center gap-4 p-5 bg-emerald-50 dark:bg-emerald-900/20 rounded-[2rem] border border-emerald-100 dark:border-emerald-800/30">
                          <Award className="w-10 h-10 text-emerald-600 dark:text-emerald-400" />
@@ -513,7 +513,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
                       <div className="h-full flex flex-col items-center justify-center text-center space-y-12 py-20">
                         <div className="relative p-16 bg-indigo-50 dark:bg-indigo-900/20 rounded-[5rem] text-indigo-600 dark:text-indigo-400 shadow-inner">
                            <Dna className="w-32 h-32 animate-pulse" />
-                           <div className="absolute -top-6 -right-6 bg-slate-900 dark:bg-slate-800 text-white text-[11px] font-black px-8 py-4 rounded-3xl uppercase tracking-[0.2em] shadow-2xl border border-white/10 dark:border-white/5">READY TO FIX</div>
+                           <div className="absolute -top-6 -right-6 bg-slate-900 dark:bg-slate-800 text-white text-[11px] font-black px-8 py-4 rounded-3xl uppercase tracking-[0.2em] shadow-2xl border border-white/10 dark:border-white/5">READY TO IMPROVE</div>
                         </div>
 
                         <div className="w-full max-w-xl bg-slate-50 dark:bg-slate-900 p-12 rounded-[4rem] border border-slate-100 dark:border-slate-800 shadow-2xl dark:shadow-none space-y-10 text-left">
@@ -555,7 +555,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({
                     <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest">Document Overview</p>
                  </div>
                </div>
-               <button onClick={() => setSummary(null)} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-all">
+               <button onClick={() => setSummary(null)} className="p-2 hover:bg-slate-100 rounded-full transition-all">
                   <CloseIcon className="w-6 h-6 text-slate-400" />
                </button>
             </div>

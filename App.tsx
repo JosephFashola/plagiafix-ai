@@ -10,6 +10,7 @@ import CreditShop from './components/CreditShop';
 import LiveStudio from './components/LiveStudio';
 import HistoryModal from './components/HistoryModal';
 import RatingModal from './components/RatingModal';
+import LaunchBanner from './components/LaunchBanner';
 import { AppStatus, DocumentState, AnalysisResult, FixResult, FixOptions, LinguisticProfile, DocumentVersion, ErrorContext } from './types';
 import { analyzeDocument, fixPlagiarism, checkApiKey } from './services/geminiService';
 import { Telemetry } from './services/telemetry';
@@ -17,7 +18,7 @@ import {
   Dna, Zap, AlertCircle, RefreshCcw, Mic, Shield, 
   GraduationCap, Sparkles, Star, ShieldCheck, Heart,
   FileSearch, Presentation, ScrollText, Globe, Layers, Fingerprint, 
-  Search, ShieldAlert, CheckCircle, FileText, Globe2, Cpu, BarChart3, Binary
+  Search, ShieldAlert, CheckCircle, FileText, Globe2, Cpu, BarChart3, Binary, User, Linkedin, Twitter, ArrowRight
 } from 'lucide-react';
 
 const SESSION_KEY = 'plagiafix_active_session_v14_final';
@@ -43,7 +44,6 @@ const App: React.FC = () => {
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isRatingOpen, setIsRatingOpen] = useState(false);
   
-  // Theme Management
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved) return saved === 'dark';
@@ -104,7 +104,6 @@ const App: React.FC = () => {
       setAnalysis(result);
       setStatus(AppStatus.IDLE); 
       setVersions([{ id: Math.random().toString(36).substr(2,9), timestamp: Date.now(), text, label: 'Initial Check', score: result.plagiarismScore }]);
-      
       Telemetry.logScan(text.length, result.detectedIssues);
     } catch (error: any) {
       setErrorContext({ code: 'SCAN_FAILURE', message: error.message, actionableAdvice: 'Please try again.' });
@@ -124,7 +123,6 @@ const App: React.FC = () => {
       setVersions(prev => [...prev, { id: Math.random().toString(36).substr(2,9), timestamp: Date.now(), text: result.rewrittenText, label: `Improved Version`, score: result.newAiProbability }]);
       setStatus(AppStatus.COMPLETED);
       toast.success("Document Fixed");
-      
       Telemetry.logFix(result.rewrittenText.length);
     } catch (error: any) {
       setErrorContext({ code: 'FIX_FAILURE', message: error.message, actionableAdvice: 'Try a shorter document.' });
@@ -171,6 +169,7 @@ const App: React.FC = () => {
       <Toaster position="top-center" />
       {isAdmin ? <AdminDashboard /> : (
         <div className="min-h-screen bg-[#f8fafc] dark:bg-[#070a0f] font-sans selection:bg-indigo-100 selection:text-indigo-900 dark:selection:bg-indigo-900/40 dark:selection:text-indigo-200 overflow-x-hidden transition-colors duration-300">
+          <LaunchBanner />
           <Header credits={credits} onOpenShop={() => setIsShopOpen(true)} darkMode={darkMode} onToggleDarkMode={toggleDarkMode} />
           
           <main className="max-w-[1600px] mx-auto px-6 lg:px-12 py-12">
@@ -201,6 +200,49 @@ const App: React.FC = () => {
                 </div>
 
                 <FileUpload onTextLoaded={handleTextLoaded} isLoading={false} hasCredits={credits > 0} onOpenShop={() => setIsShopOpen(true)} />
+
+                {/* Maker's Story Section */}
+                <div className="mt-40 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center bg-white dark:bg-slate-900 rounded-[4rem] p-12 lg:p-20 border border-slate-100 dark:border-slate-800 shadow-2xl">
+                   <div className="space-y-8">
+                      <div className="inline-flex items-center gap-3 px-6 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-full">
+                         <Heart className="w-4 h-4 text-rose-500 fill-current" />
+                         <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">The Maker's Story</span>
+                      </div>
+                      <h3 className="text-4xl lg:text-6xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none font-heading">Why I Built <span className="text-indigo-600">PlagiaFix.</span></h3>
+                      <p className="text-lg text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
+                        Hi, I'm Joseph. I noticed that high-performing writers and non-native speakers were being unfairly flagged by AI detectors just for writing structured English.
+                        <br/><br/>
+                        I built this tool to level the playing field. It uses advanced "Style DNA" matching to ensure your hard work stays your own, protecting your academic and creative reputation from robotic scanners.
+                      </p>
+                      <div className="flex items-center gap-6 pt-4">
+                         <a href="https://linkedin.com/in/joseph-fashola" target="_blank" rel="noreferrer" className="flex items-center gap-3 px-6 py-3 bg-slate-900 text-white rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-black transition-all">
+                            <Linkedin className="w-4 h-4" /> Connect with Joseph
+                         </a>
+                      </div>
+                   </div>
+                   <div className="relative">
+                      <div className="absolute inset-0 bg-indigo-600 rounded-[3rem] rotate-3 opacity-10"></div>
+                      <div className="relative bg-slate-900 rounded-[3rem] p-12 text-white space-y-8 shadow-2xl overflow-hidden border border-white/5">
+                         <div className="absolute top-0 right-0 p-8 opacity-10"><Dna className="w-40 h-40" /></div>
+                         <div className="flex items-center gap-4">
+                            <ShieldCheck className="w-8 h-8 text-indigo-400" />
+                            <h4 className="text-xl font-black uppercase tracking-tight">Our Mission</h4>
+                         </div>
+                         <div className="space-y-4">
+                            {[
+                               "Defend your academic and professional integrity.",
+                               "Bypass algorithms that flag human creativity.",
+                               "Provide free, high-grade tools for everyone."
+                            ].map((item, i) => (
+                               <div key={i} className="flex items-center gap-4 text-slate-400 font-bold text-sm">
+                                  <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />
+                                  {item}
+                               </div>
+                            ))}
+                         </div>
+                      </div>
+                   </div>
+                </div>
 
                 <div className="mt-40 space-y-24">
                   <div className="text-center max-w-4xl mx-auto space-y-6">

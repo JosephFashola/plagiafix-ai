@@ -44,7 +44,7 @@ const ScoreGauge: React.FC<ScoreGaugeProps> = ({ score, label, history = [] }) =
            <button onClick={() => setShowInfo(false)} className="absolute top-6 right-6 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300"><X className="w-5 h-5" /></button>
            <h4 className="text-lg font-black text-slate-900 dark:text-white mb-3 uppercase tracking-tighter font-heading">Writing Score</h4>
            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold leading-relaxed uppercase tracking-widest">
-             This shows how likely your writing is to be flagged as AI or copied. Lower scores are better.
+             This score shows how much of your writing looks like AI or matches other sources. A lower score means your work is safer and more original.
            </p>
            <div className="mt-6 w-full h-1 bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-500 rounded-full"></div>
         </div>

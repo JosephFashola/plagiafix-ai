@@ -67,7 +67,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
              
              <div className="space-y-4">
                 <h3 className={`text-2xl font-black uppercase tracking-tight transition-colors font-heading ${isDragging ? 'text-white' : 'text-slate-900 dark:text-white'}`}>
-                    {isProcessing ? 'Processing' : 'Your Document'}
+                    {isProcessing ? 'Processing' : 'Upload Document'}
                 </h3>
                 <p className={`text-[10px] font-bold uppercase tracking-[0.2em] max-w-[220px] mx-auto leading-relaxed transition-colors ${isDragging ? 'text-indigo-100' : 'text-slate-400 dark:text-slate-500'}`}>
                     {parsingMsg || 'PDF, DOCX, or Text up to 100 pages. We check for AI and plagiarism.'}
@@ -85,7 +85,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
               <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-4">
                       <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 neural-pulse"></div>
-                      <span className="text-[10px] font-black text-slate-500 dark:text-slate-600 uppercase tracking-[0.3em]">Editor v14.5</span>
+                      <span className="text-[10px] font-black text-slate-500 dark:text-slate-600 uppercase tracking-[0.3em]">Smart Editor</span>
                   </div>
               </div>
 

@@ -104,10 +104,10 @@ export const analyzeDocument = async (text: string, onProgress?: (percent: numbe
         contents: `Analyze this text for AI patterns and plagiarism.
         Calculate based on this segment ONLY:
         1. Readability: Ease of reading.
-        2. Variance: Variety in sentence structure.
-        3. Lexical: Vocabulary richness.
-        4. Entropy: Word choice unpredictability (0-100).
-        5. Burstiness: Changes in writing rhythm (0-100).
+        2. Sentence Variety: Variance in structure.
+        3. Vocabulary: Use of diverse words.
+        4. Natural Flow: Word choice unpredictability.
+        5. Rhythm: Changes in writing pace.
 
         Return JSON: { 
           plagiarismScore: number (0-100), 
@@ -156,10 +156,10 @@ export const analyzeDocument = async (text: string, onProgress?: (percent: numbe
       readabilityScore: avgForensic('readabilityScore'), 
       aiProbability: finalAiProb,
       radarMetrics: [
-        { subject: 'Human Quality', A: 100 - finalAiProb, fullMark: 100 },
+        { subject: 'Human Score', A: 100 - finalAiProb, fullMark: 100 },
         { subject: 'Vocabulary', A: avgForensic('entropyLevel'), fullMark: 100 },
         { subject: 'Sentence Variety', A: avgForensic('burstinessLevel'), fullMark: 100 },
-        { subject: 'Natural Style', A: 90 + (Math.random() * 5), fullMark: 100 },
+        { subject: 'Natural Flow', A: 90 + (Math.random() * 5), fullMark: 100 },
         { subject: 'Writing Rhythm', A: avgForensic('sentenceVariance') > 70 ? 90 : 60, fullMark: 100 }
       ]
     }
@@ -176,6 +176,7 @@ export const fixPlagiarism = async (text: string, issues: string[], options: Fix
       const systemInstruction = `
       You are an expert editor and research assistant.
       Your goal is to rewrite text to be 100% human-like (bypassing AI detectors) while keeping all facts.
+      Use natural English that everyday people understand. Avoid robotic or overly complex jargon unless specified.
       If sources are requested, find real scholarly references for facts.
 
       OUTPUT JSON: { 
@@ -211,7 +212,7 @@ export const fixPlagiarism = async (text: string, issues: string[], options: Fix
 
       const response = await ai.models.generateContent({
         model: PRO_MODEL,
-        contents: `Rewrite this section to sound like a human. Use this style: ${styleSample || 'Standard Academic'}. Segment: ${chunk}`,
+        contents: `Rewrite this section to sound like a natural human. Use this style: ${styleSample || 'Standard Academic'}. Segment: ${chunk}`,
         config
       });
       

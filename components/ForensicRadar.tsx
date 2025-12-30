@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import { RadarMetric } from '../types';
@@ -8,11 +9,11 @@ interface ForensicRadarProps {
 
 const ForensicRadar: React.FC<ForensicRadarProps> = ({ data }) => {
   const displayData = data && data.length > 0 ? data : [
-    { subject: 'Global Stealth', A: 85, fullMark: 100 },
-    { subject: 'Entropy', A: 70, fullMark: 100 },
-    { subject: 'Burstiness', A: 90, fullMark: 100 },
-    { subject: 'Dialect Sync', A: 80, fullMark: 100 },
-    { subject: 'Rhythm', A: 75, fullMark: 100 }
+    { subject: 'Human Score', A: 85, fullMark: 100 },
+    { subject: 'Natural Flow', A: 70, fullMark: 100 },
+    { subject: 'Sentence Variety', A: 90, fullMark: 100 },
+    { subject: 'Language Style', A: 80, fullMark: 100 },
+    { subject: 'Writing Rhythm', A: 75, fullMark: 100 }
   ];
 
   return (
@@ -31,7 +32,7 @@ const ForensicRadar: React.FC<ForensicRadarProps> = ({ data }) => {
             axisLine={false} 
           />
           <Radar
-            name="Forensic Level"
+            name="Analysis Level"
             dataKey="A"
             stroke="#4f46e5"
             strokeWidth={3}
