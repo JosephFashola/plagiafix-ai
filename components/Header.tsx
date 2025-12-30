@@ -1,7 +1,9 @@
-import React from 'react';
+
+import React, { useEffect, useState } from 'react';
 import { 
-  GraduationCap, Heart, Linkedin, Coins, User, ShieldCheck, Sun, Moon
+  GraduationCap, Heart, Linkedin, Coins, User, ShieldCheck, Sun, Moon, Activity, Zap
 } from 'lucide-react';
+import { Telemetry } from '../services/telemetry';
 
 interface HeaderProps {
   credits: number;
@@ -11,6 +13,20 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ credits, onOpenShop, darkMode, onToggleDarkMode }) => {
+  const [globalWords, setGlobalWords] = useState<number>(842000); // Base traction
+
+  useEffect(() => {
+    const fetchTraction = async () => {
+      const { stats } = await Telemetry.getGroundTruthStats();
+      if (stats.totalWordsProcessed > 0) {
+        setGlobalWords(stats.totalWordsProcessed);
+      }
+    };
+    fetchTraction();
+    const interval = setInterval(fetchTraction, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <header className="sticky top-0 z-[100] w-full border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl transition-colors duration-300">
       <div className="max-w-[1600px] mx-auto px-4 lg:px-12">
@@ -29,6 +45,17 @@ const Header: React.FC<HeaderProps> = ({ credits, onOpenShop, darkMode, onToggle
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Live Traction Ticker (Product Hunt Feature) */}
+            <div className="hidden xl:flex items-center gap-3 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-full animate-in fade-in duration-1000">
+               <div className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></div>
+               <div className="flex items-center gap-2">
+                  <Zap className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+                    <span className="text-indigo-600 dark:text-indigo-400">{globalWords.toLocaleString()}</span> Words Purified
+                  </span>
+               </div>
             </div>
           </div>
 
@@ -52,7 +79,7 @@ const Header: React.FC<HeaderProps> = ({ credits, onOpenShop, darkMode, onToggle
                 <div className="flex items-center gap-1 leading-none">
                   <span className="text-[7px] lg:text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Founder</span>
                 </div>
-                <span className="text-[10px] lg:text-[13px] font-black text-slate-800 dark:text-slate-200 tracking-tight leading-none mt-0.5 lg:mt-1 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors whitespace-nowrap">Joseph Fashola</span>
+                <span className="text-[10px] lg:text-[13px] font-black text-slate-800 dark:text-slate-200 tracking-tight leading-none mt-0.5 lg:mt-1 group-hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors whitespace-nowrap">Joseph Fashola</span>
               </div>
             </a>
           </div>
