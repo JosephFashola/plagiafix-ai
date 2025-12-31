@@ -8,7 +8,8 @@ export const generatePptx = async (slides: SlideContent[], filename: string = 'P
     try {
         // Dynamically import pptxgenjs
         const pptxModule = await import('pptxgenjs');
-        const PptxGenJS = pptxModule.default || pptxModule;
+        // Fix: cast to any to resolve non-constructable type error in dynamic import interop
+        const PptxGenJS = (pptxModule.default || pptxModule) as any;
         
         const pres = new PptxGenJS();
         pres.layout = 'LAYOUT_16x9';

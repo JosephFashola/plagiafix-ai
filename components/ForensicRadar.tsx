@@ -23,7 +23,8 @@ const ForensicRadar: React.FC<ForensicRadarProps> = ({ data }) => {
           <PolarGrid stroke="#e2e8f0" strokeWidth={1} />
           <PolarAngleAxis 
             dataKey="subject" 
-            tick={{ fill: '#64748b', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' }} 
+            // Fix: cast tick object to any to allow CSS-in-SVG properties like textTransform which are not in standard SVGProps
+            tick={{ fill: '#64748b', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em' } as any} 
           />
           <PolarRadiusAxis 
             angle={90} 

@@ -118,7 +118,8 @@ const LiveStudio: React.FC<LiveStudioProps> = ({ onCommit, onClose, initialMode 
                       className={`w-full p-4 rounded-2xl border transition-all flex items-center gap-3 ${mode === m.id ? 'bg-slate-900 border-slate-900 text-white shadow-xl' : 'bg-white border-slate-100 text-slate-500 hover:border-indigo-200'}`}
                     >
                        <div className={`p-2 rounded-xl ${mode === m.id ? 'bg-white/10' : 'bg-slate-50'}`}>
-                          {React.cloneElement(m.icon as React.ReactElement, { className: "w-4 h-4" })}
+                          {/* Fix: cast props to any to avoid Lucide/cloneElement type mismatch */}
+                          {React.cloneElement(m.icon as React.ReactElement, { className: "w-4 h-4" } as any)}
                        </div>
                        <span className="text-[10px] font-black uppercase tracking-wider">{m.id}</span>
                     </button>

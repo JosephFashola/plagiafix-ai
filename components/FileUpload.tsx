@@ -3,7 +3,9 @@ import {
   UploadCloud, Search, 
   Presentation, FileSearch, Mic,
   Shuffle, Zap, ArrowRight,
-  Activity, GraduationCap, ShieldCheck, Loader2, Sparkles
+  Activity, GraduationCap, ShieldCheck, Loader2, Sparkles, FileText,
+  // Fix: Added missing icon import
+  RefreshCcw
 } from 'lucide-react';
 import { parseFile } from '../services/documentParser';
 import toast from 'react-hot-toast';
@@ -16,7 +18,7 @@ interface FileUploadProps {
   onOpenShop: () => void;
 }
 
-const FREE_TIER_LIMIT = 100000; 
+const FREE_TIER_LIMIT = 500000; // Increased to reflect "hundreds of pages"
 
 const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCredits, onOpenShop }) => {
   const [inputText, setInputText] = useState('');
@@ -32,11 +34,11 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
 
   const processFile = async (file: File) => {
     setIsProcessing(true);
-    setParsingMsg('Reading your document...');
+    setParsingMsg('Initiating Bulk Document Audit...');
     try {
       const text = await parseFile(file, (msg) => setParsingMsg(msg));
       onTextLoaded(text, file.name);
-      toast.success("Document Uploaded");
+      toast.success("Document Ingested Successfully");
     } catch (e: any) { 
       toast.error(e.message); 
     } finally { 
@@ -61,17 +63,23 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
            >
              <input type="file" id="file-upload" className="hidden" accept=".txt,.md,.pdf,.docx" onChange={(e) => e.target.files?.[0] && processFile(e.target.files[0])} disabled={isLoading || isProcessing} />
              
-             <div className={`p-8 rounded-3xl transition-all duration-500 ${isDragging ? 'bg-white text-indigo-600' : isProcessing ? 'bg-indigo-600 text-white shadow-xl' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 group-hover:bg-indigo-600 group-hover:text-white group-hover:-translate-y-2'}`}>
-               {isProcessing ? <Loader2 className="h-12 w-12 animate-spin" /> : <UploadCloud className="h-12 w-12" />}
+             <div className={`p-8 rounded-3xl transition-all duration-500 ${isDragging ? 'bg-white text-indigo-600' : isProcessing ? 'bg-indigo-600 text-white shadow-xl animate-pulse' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 group-hover:bg-indigo-600 group-hover:text-white group-hover:-translate-y-2'}`}>
+               {/* Fix: use imported RefreshCcw icon */}
+               {isProcessing ? <RefreshCcw className="h-12 w-12 animate-spin" /> : <UploadCloud className="h-12 w-12" />}
              </div>
              
              <div className="space-y-4">
                 <h3 className={`text-2xl font-black uppercase tracking-tight transition-colors font-heading ${isDragging ? 'text-white' : 'text-slate-900 dark:text-white'}`}>
-                    {isProcessing ? 'Processing' : 'Upload Document'}
+                    {isProcessing ? 'Processing...' : 'Upload 100+ Pages'}
                 </h3>
-                <p className={`text-[10px] font-bold uppercase tracking-[0.2em] max-w-[220px] mx-auto leading-relaxed transition-colors ${isDragging ? 'text-indigo-100' : 'text-slate-400 dark:text-slate-500'}`}>
-                    {parsingMsg || 'PDF, DOCX, or Text up to 100 pages. We check for AI and plagiarism.'}
+                <p className={`text-[10px] font-bold uppercase tracking-[0.2em] max-w-[240px] mx-auto leading-relaxed transition-colors ${isDragging ? 'text-indigo-100' : 'text-slate-400 dark:text-slate-500'}`}>
+                    {parsingMsg || 'PDF, DOCX, or Text. Our engine handles hundreds of pages simultaneously for full document forensic analysis.'}
                 </p>
+             </div>
+             
+             <div className="flex items-center gap-2 mt-4 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-xl">
+               <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+               <span className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">Adversarial V6 Protection</span>
              </div>
            </div>
         </div>
@@ -85,13 +93,17 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
               <div className="flex items-center justify-between mb-8">
                   <div className="flex items-center gap-4">
                       <div className="w-2.5 h-2.5 rounded-full bg-indigo-500 neural-pulse"></div>
-                      <span className="text-[10px] font-black text-slate-500 dark:text-slate-600 uppercase tracking-[0.3em]">Smart Editor</span>
+                      <span className="text-[10px] font-black text-slate-500 dark:text-slate-600 uppercase tracking-[0.3em]">Institutional Editor</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Real-time Sync Active</span>
                   </div>
               </div>
 
               <textarea 
                   className="w-full flex-1 min-h-[380px] p-8 bg-transparent outline-none resize-none text-slate-100 text-xl leading-relaxed transition-all placeholder:text-slate-700 font-serif-doc" 
-                  placeholder="Paste your document or essay here to check it..." 
+                  placeholder="Paste your dissertation, essay, or research paper here..." 
                   value={inputText} 
                   onChange={(e) => setInputText(e.target.value)} 
                   disabled={isLoading || isProcessing} 
@@ -102,9 +114,9 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
                   <div className="flex items-center justify-between px-2">
                       <div className="flex items-center gap-2 text-[9px] font-black text-slate-500 dark:text-slate-600 uppercase tracking-widest">
                           <Activity className="h-3.5 w-3.5 text-indigo-500" />
-                          Word Count
+                          Ingestion Capacity
                       </div>
-                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-300 dark:text-slate-500">{wordCount.toLocaleString()} Words</span>
+                      <span className="text-[9px] font-black uppercase tracking-widest text-slate-300 dark:text-slate-500">{wordCount.toLocaleString()} / 100k</span>
                   </div>
                   <div className="w-full h-1 bg-slate-800 dark:bg-slate-900 rounded-full overflow-hidden">
                       <div className="h-full transition-all duration-1000 bg-indigo-500 shadow-[0_0_15px_rgba(79,70,229,0.5)]" style={{ width: `${progressPercent}%` }}></div>
@@ -114,10 +126,10 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
                 <button 
                   onClick={() => inputText.trim().length > 10 && onTextLoaded(inputText, 'Editor Input')} 
                   disabled={isLoading || isProcessing || inputText.trim().length < 10} 
-                  className="w-full md:w-auto px-12 py-5 bg-indigo-600 text-white font-black uppercase tracking-[0.2em] rounded-2xl hover:bg-indigo-500 disabled:opacity-30 transition-all shadow-2xl flex items-center justify-center gap-4 group text-xs"
+                  className="w-full md:w-auto px-12 py-5 bg-indigo-600 text-white font-black uppercase tracking-[0.2em] rounded-2xl hover:bg-indigo-500 disabled:opacity-30 transition-all shadow-2xl flex items-center justify-center gap-4 group text-xs active:scale-95"
                 >
                     {isLoading ? <Loader2 className="animate-spin w-4 h-4" /> : <Sparkles className="w-4 h-4" />} 
-                    Scan & Fix Writing
+                    Humanize Everything
                     <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                 </button>
               </div>

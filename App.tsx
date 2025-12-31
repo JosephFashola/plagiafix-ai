@@ -18,7 +18,7 @@ import {
   Dna, Zap, AlertCircle, RefreshCcw, Mic, Shield, 
   GraduationCap, Sparkles, Star, ShieldCheck, Heart,
   FileSearch, Presentation, ScrollText, Globe, Layers, Fingerprint, 
-  Search, ShieldAlert, CheckCircle, FileText, Globe2, Cpu, BarChart3, Binary, User, Linkedin, Twitter, ArrowRight
+  Search, ShieldAlert, CheckCircle, FileText, Globe2, Cpu, BarChart3, Binary, User, Linkedin, Twitter, ArrowRight, MousePointer2, Monitor, ShieldCheck as ShieldIcon
 } from 'lucide-react';
 
 const SESSION_KEY = 'plagiafix_active_session_v14_final';
@@ -72,7 +72,11 @@ const App: React.FC = () => {
     const initApp = async () => {
       try {
           const params = new URLSearchParams(window.location.search);
-          if (params.get('admin_key') === 'plagiafix_master_2025') { setIsAdmin(true); return; } 
+          if (params.get('admin_key') === 'plagiafix_master_2025') { 
+            setIsAdmin(true); 
+            setIsRestoring(false);
+            return; 
+          } 
           const saved = localStorage.getItem(SESSION_KEY);
           if (saved) {
               const session = JSON.parse(saved);
@@ -88,8 +92,11 @@ const App: React.FC = () => {
               }
           }
           Telemetry.logVisit();
-      } catch (e) { console.error("Connection failure", e); }
-      finally { setIsRestoring(false); }
+      } catch (e) { 
+        console.error("Connection failure", e); 
+      } finally { 
+        setIsRestoring(false); 
+      }
     };
     initApp();
   }, []);
@@ -162,7 +169,10 @@ const App: React.FC = () => {
 
   const toggleDarkMode = () => setDarkMode(!darkMode);
 
-  if (isRestoring) return <div className="min-h-screen bg-slate-950 flex items-center justify-center text-white font-black uppercase text-[10px] tracking-widest">Loading...</div>;
+  if (isRestoring) return <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white font-black uppercase text-[10px] tracking-[0.4em] gap-4">
+    <RefreshCcw className="w-8 h-8 animate-spin text-indigo-500" />
+    Initializing...
+  </div>;
 
   return (
     <>
@@ -182,7 +192,7 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {!activeDocument && status !== AppStatus.ANALYZING && status !== AppStatus.ERROR && (
+            {(!activeDocument || !analysis) && status !== AppStatus.ANALYZING && status !== AppStatus.FIXING && status !== AppStatus.ERROR && (
               <div className="animate-in fade-in slide-in-from-bottom-6 duration-1000">
                 <div className="flex flex-col items-center text-center mb-16">
                   <h2 className="text-5xl md:text-[6.5rem] font-black text-slate-900 dark:text-white mb-8 tracking-tighter uppercase leading-[0.85] font-heading max-w-5xl">
@@ -190,7 +200,7 @@ const App: React.FC = () => {
                     <span className="text-indigo-600">Assistant</span>
                   </h2>
                   <p className="text-lg md:text-xl text-slate-500 dark:text-slate-400 font-medium max-w-3xl mb-12 leading-relaxed">
-                    Check your writing for AI and plagiarism. Fix issues instantly to make your writing sound human and unique.
+                    Scan hundreds of pages for AI and plagiarism instantly. Our forensic engine makes your writing sound 100% human.
                   </p>
                   
                   <div className="flex justify-center gap-4 mb-16">
@@ -244,35 +254,104 @@ const App: React.FC = () => {
                    </div>
                 </div>
 
-                <div className="mt-40 space-y-24">
-                  <div className="text-center max-w-4xl mx-auto space-y-6">
-                    <div className="inline-flex items-center gap-2 px-6 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-full mb-4">
-                       <Cpu className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                       <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">Powered by Advanced AI</span>
-                    </div>
-                    <h3 className="text-4xl md:text-[5.5rem] font-black text-slate-900 dark:text-white uppercase tracking-tighter font-heading leading-none">All-in-One Writing Tools</h3>
-                    <p className="text-slate-500 dark:text-slate-400 font-medium text-xl max-w-3xl mx-auto">Everything you need to scan, fix, and improve your documents in seconds.</p>
+                {/* THE V14 ENGINE ECOSYSTEM SECTION (Simplified & Professional) */}
+                <div className="mt-40 space-y-16">
+                  <div className="text-center max-w-4xl mx-auto space-y-4">
+                    <h2 className="text-4xl lg:text-[4.5rem] font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none font-heading">
+                      THE V14 ENGINE ECOSYSTEM
+                    </h2>
+                    <p className="text-sm md:text-md text-slate-500 dark:text-slate-400 font-bold uppercase tracking-[0.2em] leading-relaxed max-w-2xl mx-auto">
+                      Professional tools to help you write, clean, and present research at scale. Simple terms. Powerful results.
+                    </p>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-6xl mx-auto px-4">
                     {[
-                      { icon: <Layers />, title: "Large Documents", desc: "Upload long papers or books. We can check hundreds of pages for you at once." },
-                      { icon: <Fingerprint />, title: "Clone Your Style", desc: "Use your past writing as a sample. We’ll make sure the fixed text sounds exactly like you." },
-                      { icon: <ShieldAlert />, title: "Bypass AI Checkers", desc: "Our tool changes writing patterns to look human, so detectors won't flag your work." },
-                      { icon: <Mic />, title: "Voice Studio", desc: "Speak your thoughts aloud. We'll turn them into professional, human-sounding text instantly." },
-                      { icon: <ScrollText />, title: "Memo Generator", desc: "Turn long reports into short, professional summaries perfect for sharing." },
-                      { icon: <Presentation />, title: "Create Slides", desc: "Transform your text into a PowerPoint presentation with notes and modern design." },
-                      { icon: <Globe />, title: "Find Sources", desc: "We automatically search the web to find and cite real scholarly sources for you." },
-                      { icon: <Globe2 />, title: "Regional English", desc: "Match your region. Choose between US, UK, Canadian, or Australian English styles." }
-                    ].map((feature, idx) => (
-                      <div key={idx} className="bg-white dark:bg-slate-900 p-10 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-xl shadow-slate-200/40 dark:shadow-none hover:border-indigo-200 dark:hover:border-indigo-900/50 hover:shadow-2xl transition-all group">
-                        <div className="p-4 bg-slate-900 dark:bg-slate-800 text-white rounded-2xl w-fit mb-8 group-hover:bg-indigo-600 transition-colors">
-                          {React.cloneElement(feature.icon as React.ReactElement, { className: "w-7 h-7" })}
+                      {
+                        title: "FORENSIC PURGE",
+                        description: "Scan documents up to 500+ pages. Our engine cleans up plagiarism and makes your writing flow better while keeping your facts 100% accurate.",
+                        icon: <Search className="w-6 h-6 text-white" />
+                      },
+                      {
+                        title: "LINGUISTIC DNA",
+                        description: "Mirror your unique writing style perfectly. Upload your past work to the DNA Vault so every paper you fix sounds exactly like you.",
+                        icon: <Fingerprint className="w-6 h-6 text-white" />
+                      },
+                      {
+                        title: "ADVERSARIAL BYPASS",
+                        description: "Built for 0% detection. We remove the hidden 'patterns' that tools like Turnitin and GPTZero look for, making your work completely human.",
+                        icon: <ShieldIcon className="w-6 h-6 text-white" />
+                      },
+                      {
+                        title: "SYNTHESIS MEMOS",
+                        description: "Turn giant research papers into short professional memos instantly. Perfect for busy students and executive review boards.",
+                        icon: <FileText className="w-6 h-6 text-white" />
+                      },
+                      {
+                        title: "NEURAL SLIDES",
+                        description: "One-click slide creation. Our engine takes your document and builds a full presentation with bullet points and speaker notes for you.",
+                        icon: <Monitor className="w-6 h-6 text-white" />
+                      },
+                      {
+                        title: "LIVE GROUNDING",
+                        description: "Smart citations. Every document we improve gets real citations from the web in the styles you need (APA, MLA, Harvard).",
+                        icon: <Globe className="w-6 h-6 text-white" />
+                      }
+                    ].map((feature, i) => (
+                      <div key={i} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[3.5rem] p-12 flex flex-col items-center text-center shadow-sm hover:shadow-2xl hover:translate-y-[-4px] transition-all duration-500">
+                        <div className="bg-slate-900 dark:bg-slate-800 p-5 rounded-2xl mb-8 shadow-xl">
+                          {feature.icon}
                         </div>
-                        <h4 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight mb-3 font-heading">{feature.title}</h4>
-                        <p className="text-slate-500 dark:text-slate-400 text-[13px] leading-relaxed font-medium">{feature.desc}</p>
+                        <h4 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tight mb-6 font-heading">
+                          {feature.title}
+                        </h4>
+                        <p className="text-sm text-slate-500 dark:text-slate-400 font-medium leading-[1.8] max-w-sm">
+                          {feature.description}
+                        </p>
                       </div>
                     ))}
+                  </div>
+
+                  {/* TRUST METRICS SECTION */}
+                  <div className="pt-24 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto px-4">
+                    <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-12 text-center flex flex-col items-center justify-center space-y-4 shadow-sm border border-slate-50 dark:border-slate-800">
+                       <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl flex items-center justify-center mb-2">
+                          <Star className="w-6 h-6 text-indigo-600 dark:text-indigo-400 fill-current" />
+                       </div>
+                       <h5 className="text-4xl font-black text-slate-900 dark:text-white font-heading">4.9/5.0</h5>
+                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">INSTITUTIONAL RATING</p>
+                    </div>
+
+                    <div className="bg-[#0f172a] rounded-[3rem] p-12 text-center flex flex-col items-center justify-center space-y-4 shadow-2xl relative overflow-hidden group">
+                       <div className="absolute inset-0 bg-indigo-500/5 group-hover:bg-indigo-500/10 transition-colors"></div>
+                       <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center mb-2 border border-white/10 relative z-10">
+                          <ShieldCheck className="w-6 h-6 text-indigo-400" />
+                       </div>
+                       <h5 className="text-4xl font-black text-white font-heading relative z-10">99.9%</h5>
+                       <p className="text-[10px] font-black text-indigo-300/60 uppercase tracking-widest relative z-10">STEALTH SUCCESS RATE</p>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-12 text-center flex flex-col items-center justify-center space-y-4 shadow-sm border border-slate-50 dark:border-slate-800">
+                       <div className="w-12 h-12 bg-rose-50 dark:bg-rose-900/20 rounded-2xl flex items-center justify-center mb-2">
+                          <Heart className="w-6 h-6 text-rose-500 fill-current" />
+                       </div>
+                       <h5 className="text-3xl font-black text-slate-900 dark:text-white font-heading">Join Flow</h5>
+                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">RATE OUR V14 ENGINE</p>
+                    </div>
+                  </div>
+
+                  {/* GET STARTED ACTION BANNER (The combined CTA) */}
+                  <div className="bg-slate-900 dark:bg-indigo-600 rounded-[4rem] p-12 lg:p-20 text-white flex flex-col lg:flex-row items-center justify-between gap-12 overflow-hidden relative shadow-2xl shadow-indigo-500/20">
+                    <div className="absolute top-0 right-0 p-10 opacity-10 rotate-12"><ShieldCheck className="w-64 h-64" /></div>
+                    <div className="space-y-6 relative z-10 max-w-2xl">
+                       <h3 className="text-4xl lg:text-5xl font-black uppercase tracking-tighter leading-none font-heading">Sovereign Protection for the <span className="text-indigo-400 dark:text-indigo-200">Modern Scholar.</span></h3>
+                       <p className="text-lg text-indigo-100/70 font-medium">
+                         Don't let algorithms define your intelligence. Start using the same forensic tools that top researchers use to protect their work.
+                       </p>
+                    </div>
+                    <button onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})} className="px-10 py-5 bg-white text-indigo-600 rounded-2xl font-black uppercase tracking-widest text-xs shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3 relative z-10 group">
+                      Get Started Now <MousePointer2 className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </button>
                   </div>
                 </div>
               </div>
