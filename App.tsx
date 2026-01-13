@@ -6,7 +6,6 @@ import FileUpload from './components/FileUpload';
 import AnalysisView from './components/AnalysisView';
 import AdminDashboard from './components/AdminDashboard'; 
 import StyleDNAVault, { SYSTEM_ARCHETYPES } from './components/StyleDNAVault';
-import CreditShop from './components/CreditShop';
 import LiveStudio from './components/LiveStudio';
 import HistoryModal from './components/HistoryModal';
 import RatingModal from './components/RatingModal';
@@ -18,7 +17,8 @@ import {
   Dna, Zap, AlertCircle, RefreshCcw, Mic, Shield, 
   GraduationCap, Sparkles, Star, ShieldCheck, Heart,
   FileSearch, Presentation, ScrollText, Globe, Layers, Fingerprint, 
-  Search, ShieldAlert, CheckCircle, FileText, Globe2, Cpu, BarChart3, Binary, User, Linkedin, Twitter, ArrowRight, MousePointer2, Monitor, ShieldCheck as ShieldIcon
+  Search, ShieldAlert, CheckCircle, FileText, Globe2, Cpu, BarChart3, Binary, User, Linkedin, Twitter, ArrowRight, MousePointer2, Monitor, ShieldCheck as ShieldIcon,
+  Lock, Settings, Eye
 } from 'lucide-react';
 
 const SESSION_KEY = 'plagiafix_active_session_v14_final';
@@ -26,7 +26,6 @@ const THEME_KEY = 'plagiafix_theme_preference';
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
-  const [credits, setCredits] = useState<number>(0);
   const [activeDocument, setActiveDocument] = useState<DocumentState | null>(null);
   const [docTitle, setDocTitle] = useState('My Document Analysis');
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
@@ -39,10 +38,12 @@ const App: React.FC = () => {
   const [profiles, setProfiles] = useState<LinguisticProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string | null>('sys_ghost');
   const [isVaultOpen, setIsVaultOpen] = useState(false);
-  const [isShopOpen, setIsShopOpen] = useState(false);
   const [isLiveStudioOpen, setIsLiveStudioOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isRatingOpen, setIsRatingOpen] = useState(false);
+  
+  // Admin state (accessible via URL param only now)
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
   
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem(THEME_KEY);
@@ -63,10 +64,10 @@ const App: React.FC = () => {
   useEffect(() => {
     if (activeDocument || analysis || fixResult) {
       localStorage.setItem(SESSION_KEY, JSON.stringify({
-        document: activeDocument, analysis, fixResult, profiles, activeProfileId, versions, credits, docTitle, timestamp: Date.now()
+        document: activeDocument, analysis, fixResult, profiles, activeProfileId, versions, docTitle, timestamp: Date.now()
       }));
     }
-  }, [activeDocument, analysis, fixResult, profiles, activeProfileId, versions, credits, docTitle]);
+  }, [activeDocument, analysis, fixResult, profiles, activeProfileId, versions, docTitle]);
 
   useEffect(() => {
     const initApp = async () => {
@@ -74,6 +75,7 @@ const App: React.FC = () => {
           const params = new URLSearchParams(window.location.search);
           if (params.get('admin_key') === 'plagiafix_master_2025') { 
             setIsAdmin(true); 
+            setAdminUnlocked(true);
             setIsRestoring(false);
             return; 
           } 
@@ -87,7 +89,6 @@ const App: React.FC = () => {
                   if (session.profiles) setProfiles(session.profiles);
                   if (session.activeProfileId) setActiveProfileId(session.activeProfileId);
                   if (session.versions) setVersions(session.versions);
-                  if (session.credits) setCredits(session.credits);
                   if (session.docTitle) setDocTitle(session.docTitle);
               }
           }
@@ -121,15 +122,19 @@ const App: React.FC = () => {
 
   const handleFixPlagiarism = async (options: FixOptions) => {
     if (!activeDocument || !analysis) return;
+
     setStatus(AppStatus.FIXING);
     try {
       const allProfiles = [...profiles, ...(SYSTEM_ARCHETYPES as LinguisticProfile[])];
       const active = allProfiles.find(p => p.id === options.styleProfileId);
       const result = await fixPlagiarism(activeDocument.originalText, analysis.detectedIssues, options, analysis.sourcesFound || [], (p, msg) => setScanProgress({ percent: p, step: msg }), active?.sample);
+      
       setFixResult(result);
       setVersions(prev => [...prev, { id: Math.random().toString(36).substr(2,9), timestamp: Date.now(), text: result.rewrittenText, label: `Improved Version`, score: result.newAiProbability }]);
       setStatus(AppStatus.COMPLETED);
-      toast.success("Document Fixed");
+      
+      toast.success(`Humanization Complete! All features are free.`, { icon: '🎓' });
+      
       Telemetry.logFix(result.rewrittenText.length);
     } catch (error: any) {
       setErrorContext({ code: 'FIX_FAILURE', message: error.message, actionableAdvice: 'Try a shorter document.' });
@@ -177,10 +182,20 @@ const App: React.FC = () => {
   return (
     <>
       <Toaster position="top-center" />
-      {isAdmin ? <AdminDashboard /> : (
+      {isAdmin ? (
+        <div className="relative">
+          <AdminDashboard />
+          <button 
+            onClick={() => setIsAdmin(false)}
+            className="fixed bottom-10 right-10 z-[200] px-6 py-4 bg-white text-indigo-600 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-2xl border border-indigo-100 flex items-center gap-3 hover:scale-105 active:scale-95 transition-all"
+          >
+            <Eye className="w-4 h-4" /> Exit Admin View
+          </button>
+        </div>
+      ) : (
         <div className="min-h-screen bg-[#f8fafc] dark:bg-[#070a0f] font-sans selection:bg-indigo-100 selection:text-indigo-900 dark:selection:bg-indigo-900/40 dark:selection:text-indigo-200 overflow-x-hidden transition-colors duration-300">
           <LaunchBanner />
-          <Header credits={credits} onOpenShop={() => setIsShopOpen(true)} darkMode={darkMode} onToggleDarkMode={toggleDarkMode} />
+          <Header darkMode={darkMode} onToggleDarkMode={toggleDarkMode} />
           
           <main className="max-w-[1600px] mx-auto px-6 lg:px-12 py-12">
             {status === AppStatus.ERROR && errorContext && (
@@ -196,11 +211,11 @@ const App: React.FC = () => {
               <div className="animate-in fade-in slide-in-from-bottom-6 duration-1000">
                 <div className="flex flex-col items-center text-center mb-16">
                   <h2 className="text-5xl md:text-[6.5rem] font-black text-slate-900 dark:text-white mb-8 tracking-tighter uppercase leading-[0.85] font-heading max-w-5xl">
-                    Smart Writing <br/>
+                    Free Smart Writing <br/>
                     <span className="text-indigo-600">Assistant</span>
                   </h2>
                   <p className="text-lg md:text-xl text-slate-500 dark:text-slate-400 font-medium max-w-3xl mb-12 leading-relaxed">
-                    Scan hundreds of pages for AI and plagiarism instantly. Our forensic engine makes your writing sound 100% human.
+                    Scan hundreds of pages for AI and plagiarism instantly. Our forensic engine makes your writing sound 100% human, for free.
                   </p>
                   
                   <div className="flex justify-center gap-4 mb-16">
@@ -209,9 +224,8 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                <FileUpload onTextLoaded={handleTextLoaded} isLoading={false} hasCredits={credits > 0} onOpenShop={() => setIsShopOpen(true)} />
+                <FileUpload onTextLoaded={handleTextLoaded} isLoading={false} />
 
-                {/* Maker's Story Section */}
                 <div className="mt-40 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center bg-white dark:bg-slate-900 rounded-[4rem] p-12 lg:p-20 border border-slate-100 dark:border-slate-800 shadow-2xl">
                    <div className="space-y-8">
                       <div className="inline-flex items-center gap-3 px-6 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-full">
@@ -254,14 +268,13 @@ const App: React.FC = () => {
                    </div>
                 </div>
 
-                {/* THE V14 ENGINE ECOSYSTEM SECTION (Simplified & Professional) */}
                 <div className="mt-40 space-y-16">
                   <div className="text-center max-w-4xl mx-auto space-y-4">
                     <h2 className="text-4xl lg:text-[4.5rem] font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none font-heading">
                       THE V14 ENGINE ECOSYSTEM
                     </h2>
                     <p className="text-sm md:text-md text-slate-500 dark:text-slate-400 font-bold uppercase tracking-[0.2em] leading-relaxed max-w-2xl mx-auto">
-                      Professional tools to help you write, clean, and present research at scale. Simple terms. Powerful results.
+                      Professional tools to help you write, clean, and present research at scale. Completely free for everyone.
                     </p>
                   </div>
 
@@ -312,7 +325,6 @@ const App: React.FC = () => {
                     ))}
                   </div>
 
-                  {/* TRUST METRICS SECTION */}
                   <div className="pt-24 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto px-4">
                     <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-12 text-center flex flex-col items-center justify-center space-y-4 shadow-sm border border-slate-50 dark:border-slate-800">
                        <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl flex items-center justify-center mb-2">
@@ -340,7 +352,6 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* GET STARTED ACTION BANNER (The combined CTA) */}
                   <div className="bg-slate-900 dark:bg-indigo-600 rounded-[4rem] p-12 lg:p-20 text-white flex flex-col lg:flex-row items-center justify-between gap-12 overflow-hidden relative shadow-2xl shadow-indigo-500/20">
                     <div className="absolute top-0 right-0 p-10 opacity-10 rotate-12"><ShieldCheck className="w-64 h-64" /></div>
                     <div className="space-y-6 relative z-10 max-w-2xl">
@@ -384,7 +395,6 @@ const App: React.FC = () => {
 
           {isVaultOpen && <StyleDNAVault profiles={profiles} activeProfileId={activeProfileId} onClose={() => setIsVaultOpen(false)} onProfileSelect={setActiveProfileId} onAddProfile={(p) => setProfiles(prev => [...prev, p])} />}
           {isLiveStudioOpen && <LiveStudio initialMode="IvyStealth" onCommit={(text) => { handleTextLoaded(text, 'Text Input'); setIsLiveStudioOpen(false); }} onClose={() => setIsLiveStudioOpen(false)} />}
-          {isShopOpen && <CreditShop onClose={() => setIsShopOpen(false)} onPurchase={(amt) => { setCredits(prev => prev + amt); setIsShopOpen(false); }} />}
           {isHistoryOpen && <HistoryModal versions={versions} onRestore={handleRestoreVersion} onClose={() => setIsHistoryOpen(false)} />}
           {isRatingOpen && <RatingModal onClose={() => setIsRatingOpen(false)} />}
           
@@ -395,8 +405,18 @@ const App: React.FC = () => {
                     <span className="text-2xl font-black font-heading tracking-tighter uppercase text-slate-900 dark:text-white">PlagiaFix</span>
                 </div>
                 <div className="flex flex-col md:flex-row items-center gap-10">
+                   {adminUnlocked && (
+                     <button 
+                       onClick={() => setIsAdmin(true)}
+                       className="flex items-center gap-2 text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 uppercase tracking-widest transition-all animate-in fade-in slide-in-from-left-4"
+                     >
+                       <Settings className="w-3.5 h-3.5" /> Node Admin
+                     </button>
+                   )}
                    <button onClick={() => setIsRatingOpen(true)} className="flex items-center gap-2 text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest hover:text-indigo-800 dark:hover:text-indigo-300 transition-all"><Star className="w-4 h-4 fill-current" /> Give Feedback</button>
-                   <a href="https://linkedin.com/in/joseph-fashola" target="_blank" rel="noreferrer" className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest hover:text-indigo-600 transition-all">By Joseph Fashola</a>
+                   <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
+                     By Joseph Fashola
+                   </span>
                 </div>
             </div>
           </footer>

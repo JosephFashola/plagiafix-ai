@@ -2,6 +2,7 @@
   "name": "PlagiaFix AI",
   "description": "The world's most advanced plagiarism fixer. Features Adversarial V6 Stealth, Stanford Research-Grade Humanization, and Forensic Rhythmic Jitter to ensure absolute document originality and bypass institutional scanners.",
   "requestFramePermissions": [
-    "microphone"
+    "microphone",
+    "geolocation"
   ]
 }

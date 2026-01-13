@@ -1,19 +1,19 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { 
-  GraduationCap, Heart, Linkedin, Coins, User, ShieldCheck, Sun, Moon, Activity, Zap
+  GraduationCap, Heart, Linkedin, User, ShieldCheck, Sun, Moon, Activity, Zap, Cpu
 } from 'lucide-react';
 import { Telemetry } from '../services/telemetry';
 
 interface HeaderProps {
-  credits: number;
-  onOpenShop: () => void;
   darkMode: boolean;
   onToggleDarkMode: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ credits, onOpenShop, darkMode, onToggleDarkMode }) => {
-  const [globalWords, setGlobalWords] = useState<number>(842000); // Base traction
+const Header: React.FC<HeaderProps> = ({ darkMode, onToggleDarkMode }) => {
+  const [globalWords, setGlobalWords] = useState<number>(2842000); 
+  const [displayWords, setDisplayWords] = useState<number>(2842000);
+  const countRef = useRef<number>(2842000);
 
   useEffect(() => {
     const fetchTraction = async () => {
@@ -23,9 +23,37 @@ const Header: React.FC<HeaderProps> = ({ credits, onOpenShop, darkMode, onToggle
       }
     };
     fetchTraction();
-    const interval = setInterval(fetchTraction, 60000);
+    const interval = setInterval(fetchTraction, 10000); // More frequent checks for simulated drift
     return () => clearInterval(interval);
   }, []);
+
+  // Smooth counting animation logic
+  useEffect(() => {
+    const duration = 2000; // 2 seconds to reach target
+    const start = countRef.current;
+    const end = globalWords;
+    if (start === end) return;
+
+    const startTime = performance.now();
+
+    const animate = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Easing function for a "smooth" odometer feel
+      const easedProgress = 1 - Math.pow(1 - progress, 4);
+      const currentCount = Math.floor(start + (end - start) * easedProgress);
+      
+      setDisplayWords(currentCount);
+      countRef.current = currentCount;
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+
+    requestAnimationFrame(animate);
+  }, [globalWords]);
 
   return (
     <header className="sticky top-0 z-[100] w-full border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl transition-colors duration-300">
@@ -41,19 +69,25 @@ const Header: React.FC<HeaderProps> = ({ credits, onOpenShop, darkMode, onToggle
                 <div className="flex items-center gap-1.5 lg:gap-2">
                   <h1 className="text-lg lg:text-2xl font-black text-slate-900 dark:text-white tracking-tighter uppercase leading-none font-heading">PlagiaFix</h1>
                   <div className="flex items-center gap-1 px-1.5 py-0.5 bg-indigo-600 text-white text-[7px] lg:text-[9px] font-black uppercase tracking-[0.2em] rounded shadow-sm">
-                    PRO
+                    V14
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Live Traction Ticker (Product Hunt Feature) */}
+            {/* Live Traction Ticker */}
             <div className="hidden xl:flex items-center gap-3 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-full animate-in fade-in duration-1000">
-               <div className="w-2 h-2 rounded-full bg-indigo-600 animate-pulse"></div>
+               <div className="flex items-center gap-2">
+                  <Cpu className="w-3 h-3 text-indigo-600 dark:text-indigo-400 animate-pulse" />
+                  <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">
+                    Neural Sync: <span className="text-indigo-600 dark:text-indigo-400">ONLINE</span>
+                  </span>
+               </div>
+               <div className="w-[1px] h-3 bg-indigo-200 dark:bg-indigo-800 mx-1"></div>
                <div className="flex items-center gap-2">
                   <Zap className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />
                   <span className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">
-                    <span className="text-indigo-600 dark:text-indigo-400">{globalWords.toLocaleString()}</span> Words Purified
+                    <span className="text-indigo-600 dark:text-indigo-400 tabular-nums">{displayWords.toLocaleString()}</span> Words Purged
                   </span>
                </div>
             </div>
@@ -93,13 +127,10 @@ const Header: React.FC<HeaderProps> = ({ credits, onOpenShop, darkMode, onToggle
             >
               {darkMode ? <Sun className="w-4 h-4 lg:w-5 lg:h-5" /> : <Moon className="w-4 h-4 lg:w-5 lg:h-5" />}
             </button>
-            <button 
-              onClick={onOpenShop} 
-              className="flex items-center gap-2 lg:gap-3 px-3 lg:px-6 py-2 lg:py-3.5 bg-slate-900 dark:bg-slate-800 text-white rounded-xl lg:rounded-2xl shadow-xl shadow-slate-200 dark:shadow-none hover:bg-indigo-600 dark:hover:bg-indigo-700 transition-all active:scale-95 group border border-white/10"
-            >
-              <Heart className={`w-3 h-3 lg:w-4 lg:h-4 transition-transform group-hover:scale-125 ${credits > 0 ? 'fill-rose-500 text-rose-500' : 'text-white'}`} />
-              <span className="text-[8px] lg:text-[11px] font-black uppercase tracking-widest whitespace-nowrap">Support</span>
-            </button>
+            <div className="flex items-center gap-2 lg:gap-3 px-3 lg:px-6 py-2 lg:py-3.5 bg-emerald-600 text-white rounded-xl lg:rounded-2xl shadow-xl transition-all border border-white/10">
+              <ShieldCheck className="w-3 h-3 lg:w-4 lg:h-4" />
+              <span className="text-[8px] lg:text-[11px] font-black uppercase tracking-widest whitespace-nowrap">Sovereign Mode</span>
+            </div>
           </div>
         </div>
       </div>

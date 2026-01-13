@@ -54,9 +54,8 @@ export class LiveHumanizer {
     }
 
     const systemInstruction = `
-    ADVERSARIAL LIVE SYNC V6 (Stanford Research Grade)
-    MODE: ${mode}
-    Target: Peer-review stealth.
+    ADVERSARIAL HUMANIZER ENGINE V6.
+    Goal: Rewrite text to maintain 100% factual fidelity while achieving 100% Human Stealth rating.
     
     Linguistic Directives:
     1. ZERO PREDICTABILITY: Mirror the user's input but inject extreme rhythmic jitter.
@@ -67,7 +66,8 @@ export class LiveHumanizer {
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     this.sessionPromise = ai.live.connect({
-      model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+      // Updated to the recommended Gemini 2.5 Flash Native Audio preview model
+      model: 'gemini-2.5-flash-native-audio-preview-12-2025',
       config: {
         responseModalities: [Modality.AUDIO],
         outputAudioTranscription: {},
@@ -123,6 +123,7 @@ export class LiveHumanizer {
     this.processor.onaudioprocess = (e) => {
       const inputData = e.inputBuffer.getChannelData(0);
       const pcmBlob = this.createBlob(inputData);
+      // Ensure data is sent only after session resolves to prevent race condition
       this.sessionPromise?.then(session => {
         session.sendRealtimeInput({ media: pcmBlob });
       });
@@ -146,6 +147,7 @@ export class LiveHumanizer {
 
   private async playAudio(base64: string) {
     if (!this.outputAudioContext) return;
+    // Schedule next chunk for gapless playback
     this.nextStartTime = Math.max(this.nextStartTime, this.outputAudioContext.currentTime);
     const audioData = this.decode(base64);
     const audioBuffer = await this.decodeAudioData(audioData, this.outputAudioContext, 24000, 1);
@@ -180,6 +182,7 @@ export class LiveHumanizer {
     this.sessionPromise = null;
   }
 
+  // Manual base64 encoding as required by guidelines
   private encode(bytes: Uint8Array): string {
     let binary = '';
     const len = bytes.byteLength;
@@ -187,6 +190,7 @@ export class LiveHumanizer {
     return btoa(binary);
   }
 
+  // Manual base64 decoding as required by guidelines
   private decode(base64: string): Uint8Array {
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
@@ -194,6 +198,7 @@ export class LiveHumanizer {
     return bytes;
   }
 
+  // Manual PCM audio decoding as required by guidelines
   private async decodeAudioData(data: Uint8Array, ctx: AudioContext, rate: number, channels: number): Promise<AudioBuffer> {
     const dataInt16 = new Int16Array(data.buffer, data.byteOffset, data.byteLength / 2);
     const frameCount = dataInt16.length / channels;

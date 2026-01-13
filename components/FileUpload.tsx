@@ -4,7 +4,6 @@ import {
   Presentation, FileSearch, Mic,
   Shuffle, Zap, ArrowRight,
   Activity, GraduationCap, ShieldCheck, Loader2, Sparkles, FileText,
-  // Fix: Added missing icon import
   RefreshCcw
 } from 'lucide-react';
 import { parseFile } from '../services/documentParser';
@@ -14,13 +13,11 @@ import React, { useState, useEffect } from 'react';
 interface FileUploadProps {
   onTextLoaded: (text: string, fileName: string) => void;
   isLoading: boolean;
-  hasCredits: boolean;
-  onOpenShop: () => void;
 }
 
-const FREE_TIER_LIMIT = 500000; // Increased to reflect "hundreds of pages"
+const FREE_LIMIT_LABEL = 100000;
 
-const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCredits, onOpenShop }) => {
+const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading }) => {
   const [inputText, setInputText] = useState('');
   const [wordCount, setWordCount] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -47,7 +44,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
     }
   };
 
-  const progressPercent = Math.min(100, (wordCount / FREE_TIER_LIMIT) * 100);
+  const progressPercent = Math.min(100, (wordCount / FREE_LIMIT_LABEL) * 100);
 
   return (
     <div className="space-y-12 transition-colors duration-300">
@@ -64,7 +61,6 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
              <input type="file" id="file-upload" className="hidden" accept=".txt,.md,.pdf,.docx" onChange={(e) => e.target.files?.[0] && processFile(e.target.files[0])} disabled={isLoading || isProcessing} />
              
              <div className={`p-8 rounded-3xl transition-all duration-500 ${isDragging ? 'bg-white text-indigo-600' : isProcessing ? 'bg-indigo-600 text-white shadow-xl animate-pulse' : 'bg-slate-50 dark:bg-slate-800 text-slate-400 group-hover:bg-indigo-600 group-hover:text-white group-hover:-translate-y-2'}`}>
-               {/* Fix: use imported RefreshCcw icon */}
                {isProcessing ? <RefreshCcw className="h-12 w-12 animate-spin" /> : <UploadCloud className="h-12 w-12" />}
              </div>
              
@@ -73,13 +69,13 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
                     {isProcessing ? 'Processing...' : 'Upload 100+ Pages'}
                 </h3>
                 <p className={`text-[10px] font-bold uppercase tracking-[0.2em] max-w-[240px] mx-auto leading-relaxed transition-colors ${isDragging ? 'text-indigo-100' : 'text-slate-400 dark:text-slate-500'}`}>
-                    {parsingMsg || 'PDF, DOCX, or Text. Our engine handles hundreds of pages simultaneously for full document forensic analysis.'}
+                    {parsingMsg || 'PDF, DOCX, or Text. Our engine handles hundreds of pages simultaneously for free. Forensic analysis at scale.'}
                 </p>
              </div>
              
-             <div className="flex items-center gap-2 mt-4 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-xl">
-               <ShieldCheck className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-               <span className="text-[9px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">Adversarial V6 Protection</span>
+             <div className="flex items-center gap-2 mt-4 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800/30 rounded-xl">
+               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+               <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">Sovereign Free Audit</span>
              </div>
            </div>
         </div>
@@ -97,7 +93,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onTextLoaded, isLoading, hasCre
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
-                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Real-time Sync Active</span>
+                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Free Mode Active</span>
                   </div>
               </div>
 
