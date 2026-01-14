@@ -73,6 +73,20 @@ export type HumanizeMode = 'Standard' | 'Ghost' | 'Academic' | 'Creative' | 'Ivy
 
 export type CitationStyle = 'APA' | 'MLA' | 'Chicago' | 'Harvard' | 'IEEE' | 'Vancouver' | 'Nature' | 'Bluebook';
 
+export type TargetLanguage = 
+  | 'English (US)' 
+  | 'English (UK)' 
+  | 'English (CA)' 
+  | 'English (AU)' 
+  | 'Spanish (Modern)' 
+  | 'French (Scholarly)' 
+  | 'German (Formal)' 
+  | 'Italian (Standard)' 
+  | 'Portuguese (Brazil)' 
+  | 'Dutch (Academic)' 
+  | 'Chinese (Simplified)' 
+  | 'Japanese (Formal)';
+
 export type IdentityLevel = 'UNDERGRADUATE' | 'MSC' | 'POSTGRADUATE' | 'GHOST' | 'EXECUTIVE';
 
 export interface LinguisticProfile {
@@ -91,7 +105,7 @@ export interface FixOptions {
   citationStyle: CitationStyle;
   mode: HumanizeMode;
   strength: number; 
-  dialect: 'US' | 'UK' | 'CA' | 'AU';
+  language: TargetLanguage;
   styleProfileId?: string;
 }
 
@@ -124,7 +138,6 @@ export interface DocumentState {
   fileName?: string;
 }
 
-// Admin / Telemetry Types
 export type LogType = 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'DONATION' | 'FEEDBACK';
 
 export interface LogEntry {

@@ -101,15 +101,19 @@ export const analyzeDocument = async (text: string, onProgress?: (percent: numbe
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
         model: FLASH_MODEL,
-        contents: `Perform a forensic plagiarism audit and AI detection check on this document segment. 
-        Use the available tools to verify if this content exists elsewhere on the web.
+        contents: `Perform a forensic plagiarism audit and AI detection check. 
         
-        Return JSON exactly in this format:
+        DETECTION RULES:
+        - HIGH BURSTINESS (varying sentence lengths) = HUMAN.
+        - HIGH PERPLEXITY (complex word choice) = HUMAN.
+        - Look for "Uniformity" (similar sentence lengths, predictable transitions like 'Moreover', 'In addition') = AI.
+        
+        Return JSON exactly:
         { 
-          plagiarismScore: number (0-100), 
-          aiProbability: number (0-100), 
+          plagiarismScore: number, 
+          aiProbability: number, 
           detectedIssues: string[], 
-          critique: "A professional 2-sentence summary of findings",
+          critique: string,
           forensics: {
             avgSentenceLength: number,
             sentenceVariance: number,
@@ -118,7 +122,7 @@ export const analyzeDocument = async (text: string, onProgress?: (percent: numbe
             entropyLevel: number,
             burstinessLevel: number
           },
-          paragraphBreakdown: [{text: string, riskScore: number, matchType: "AI"|"PLAGIARISM"|"SAFE", evidence: "URL or reason"}] 
+          paragraphBreakdown: [{text: string, riskScore: number, matchType: "AI"|"PLAGIARISM"|"SAFE", evidence: string}] 
         }
 
         Segment: ${chunk}`,
@@ -136,9 +140,9 @@ export const analyzeDocument = async (text: string, onProgress?: (percent: numbe
             .filter((c: any) => c.web)
             .map((c: any) => ({
               id: Math.random().toString(36).substr(2, 9),
-              title: c.web.title || 'Institutional Match',
+              title: c.web.title || 'External Match',
               url: c.web.uri,
-              snippet: 'Direct match found during forensic scan.',
+              snippet: 'Found during forensic search audit.',
               author: 'External Source',
               year: 'N/A',
               impactScore: 90,
@@ -154,7 +158,7 @@ export const analyzeDocument = async (text: string, onProgress?: (percent: numbe
   });
 
   const valid = results.filter(r => r !== null);
-  if (valid.length === 0) throw new Error("Forensic scan failed. Please check your connection.");
+  if (valid.length === 0) throw new Error("Audit failed.");
 
   const avg = (k: string) => Math.round(valid.reduce((s, r) => s + (r[k] || 0), 0) / valid.length);
   const avgForensic = (k: string) => Math.round(valid.reduce((s, r) => s + (r.forensics?.[k] || 0), 0) / valid.length);
@@ -170,7 +174,7 @@ export const analyzeDocument = async (text: string, onProgress?: (percent: numbe
     originalScore: finalPlagScore,
     plagiarismScore: finalPlagScore,
     aiProbability: finalAiProb,
-    critique: valid[0]?.critique || "Audit completed with standard forensic protocols.",
+    critique: valid[0]?.critique || "Audit complete.",
     detectedIssues: Array.from(new Set(valid.flatMap(r => r.detectedIssues || []))),
     paragraphBreakdown: valid.flatMap(r => r.paragraphBreakdown || []),
     sourcesFound: Array.from(uniqueSourcesMap.values()),
@@ -196,47 +200,30 @@ export const fixPlagiarism = async (text: string, issues: string[], options: Fix
   const chunks = chunkText(text, 6000); 
   const results = await processInBatches(chunks, 1, DELAY_PRO, async (chunk, idx) => {
     return await withRetry(async () => {
-      onProgress(Math.round(((idx + 1) / chunks.length) * 100), `Synthesizing Part ${idx+1}/${chunks.length}`);
+      onProgress(Math.round(((idx + 1) / chunks.length) * 100), `Global Humanizing ${idx+1}/${chunks.length}`);
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       
       const systemInstruction = `
-      ADVERSARIAL HUMANIZER ENGINE V6 - LOSSLESS MODE.
-      Goal: Rewrite text to maintain 100% factual fidelity while achieving 100% Human Stealth rating.
+      ADVERSARIAL HUMANIZER ENGINE V8 - MULTILINGUAL CHAOS.
+      Goal: Shatter mathematical AI signatures in the target language.
       
-      CRITICAL LENGTH DIRECTIVE:
-      - You MUST maintain the exact length, detail, and depth of the original text.
-      - DO NOT summarize. DO NOT compress. DO NOT omit examples or sub-points.
-      - If the input segment contains 5 paragraphs, the output must contain 5 paragraphs of similar length.
-      - Expansion is preferred over contraction to ensure zero loss of information.
-
-      Requirements:
-      1. Eliminate all repetitive AI sentence structures (e.g., "This is...", "It is important to...").
-      2. Inject forensic rhythmic jitter (variable sentence lengths).
-      3. Use appropriate academic or creative vocabulary based on the profile provided.
-      4. Ground all claims in real external research.
-
+      CORE DIRECTIVES:
+      1. SYNTACTIC DECOUPLING: Break the logical "smoothness" specific to ${options.language}. Mix sentence structures.
+      2. ANTI-TROPE: Delete all region-specific AI filler words.
+      3. VOCABULARY JITTER: Use unexpected but high-precision academic terms in ${options.language}.
+      4. TARGET LANGUAGE: Rewrite or maintain text strictly in ${options.language}.
+      5. ZERO LOSS: Preserve all facts, data, and citations exactly.
+      
       OUTPUT JSON: { 
-        rewrittenText: "The new text",
-        improvementsMade: ["list of improvements"],
+        rewrittenText: string,
+        improvementsMade: string[],
         forensics: { stealth: number, fidelity: number, jitter: number },
-        bibliography: [{
-          id: "uuid",
-          title: "Title",
-          url: "URL",
-          author: "Author",
-          year: "Year",
-          impactScore: number,
-          publisher: "Publisher",
-          type: "JOURNAL",
-          peerReviewMarker: boolean,
-          fullCitation: "Full formatted citation",
-          snippet: "Relevance summary"
-        }]
+        bibliography: [{ id, title, url, author, year, fullCitation, snippet }]
       }
       `;
 
       const config: any = { 
-        thinkingConfig: { thinkingBudget: 16000 }, 
+        thinkingConfig: { thinkingBudget: 32000 }, 
         responseMimeType: "application/json",
         systemInstruction
       };
@@ -247,11 +234,10 @@ export const fixPlagiarism = async (text: string, issues: string[], options: Fix
 
       const response = await ai.models.generateContent({
         model: PRO_MODEL,
-        contents: `Rewrite this text to sound like a natural human (Profile: ${styleSample || 'Scholarly'}). 
-        IMPORTANT: Preserve the exact length and all specific details of the source. Do not shorten it.
-        If you find matching sources for facts, include them in the bibliography. 
+        contents: `Humanize this text in ${options.language} with ${options.strength}% Adversarial Stealth.
+        Style Persona: ${styleSample || 'Scholarly but Natural'}.
         
-        Text to process: ${chunk}`,
+        Text: ${chunk}`,
         config
       });
       
@@ -264,20 +250,17 @@ export const fixPlagiarism = async (text: string, issues: string[], options: Fix
             .filter((c: any) => c.web)
             .map((c: any) => ({
               id: Math.random().toString(36).substr(2, 9),
-              title: c.web.title || 'Scholarly Source',
+              title: c.web.title || 'Verified Source',
               url: c.web.uri,
-              snippet: 'Source verified via real-time search grounding.',
+              snippet: 'Fact-checked source.',
               author: 'Researcher',
               year: '2025',
               impactScore: 92,
               type: 'WEB',
               peerReviewMarker: true,
-              fullCitation: `${c.web.title}. (2025). Retrieved from ${c.web.uri}`
+              fullCitation: `${c.web.title}. (2025). ${c.web.uri}`
             }));
-            
-          const existingUrls = new Set((parsed.bibliography || []).map((b: any) => b.url));
-          const newBibs = groundingBibs.filter((b: any) => !existingUrls.has(b.url));
-          parsed.bibliography = [...(parsed.bibliography || []), ...newBibs];
+          parsed.bibliography = [...(parsed.bibliography || []), ...groundingBibs];
         }
       }
       return parsed;
@@ -299,9 +282,9 @@ export const fixPlagiarism = async (text: string, issues: string[], options: Fix
     fidelityMap: [
       { subject: 'Human Score', A: 99, fullMark: 100 }, 
       { subject: 'Originality', A: 100, fullMark: 100 }, 
-      { subject: 'Rhythmic Jitter', A: avgForensic('jitter') || 94, fullMark: 100 }, 
-      { subject: 'Fact Check', A: avgForensic('fidelity') || 98, fullMark: 100 }, 
-      { subject: 'Synthesis Depth', A: 95, fullMark: 100 }
+      { subject: 'Chaos Factor', A: avgForensic('jitter') || 95, fullMark: 100 }, 
+      { subject: 'Fact Fidelity', A: avgForensic('fidelity') || 98, fullMark: 100 }, 
+      { subject: 'Synthesis', A: 95, fullMark: 100 }
     ]
   };
 };
@@ -310,7 +293,7 @@ export const generateSlides = async (text: string): Promise<SlideContent[]> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: FLASH_MODEL,
-    contents: `Transform this document into a set of highly professional presentation slides. Return a JSON array: [{ title, bullets: string[], speakerNotes }]. Document: ${text.substring(0, 15000)}`,
+    contents: `Transform this document into presentation slides. Return JSON array: [{ title, bullets: string[], speakerNotes }]. Document: ${text.substring(0, 15000)}`,
     config: { responseMimeType: "application/json" }
   });
   return parseJSONSafely(response.text) || [];
@@ -320,10 +303,10 @@ export const generateSummary = async (text: string): Promise<SummaryMemo> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const response = await ai.models.generateContent({
     model: FLASH_MODEL,
-    contents: `Generate a high-level executive summary memo for this document. Return JSON: { to, from, subject, executiveSummary, keyActionItems: string[], conclusion }. Document: ${text.substring(0, 15000)}`,
+    contents: `Generate an executive summary memo. Return JSON: { to, from, subject, executiveSummary, keyActionItems: string[], conclusion }. Document: ${text.substring(0, 15000)}`,
     config: { responseMimeType: "application/json" }
   });
-  return parseJSONSafely(response.text) || { to: "Principal Investigator", from: "PlagiaFix AI", subject: "Document Synthesis", executiveSummary: "Summary unavailable.", keyActionItems: [], conclusion: "" };
+  return parseJSONSafely(response.text) || { to: "PI", from: "PlagiaFix", subject: "Summary", executiveSummary: "None", keyActionItems: [], conclusion: "" };
 };
 
 export const testGeminiConnection = async () => {
