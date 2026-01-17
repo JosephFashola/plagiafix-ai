@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { 
   X, Star, Send, ShieldCheck, Sparkles, 
@@ -27,12 +28,9 @@ const RatingModal: React.FC<RatingModalProps> = ({ onClose }) => {
     }
     setIsSubmitting(true);
     try {
-      await Telemetry.logRewriteFeedback({
-        firstName: name || 'Anonymous Researcher',
-        email: email || 'anonymous@institutional.io',
-        rating,
-        comment
-      });
+      // Fix: Use Telemetry.logFeedback instead of non-existent logRewriteFeedback and format details as a string.
+      const feedbackMsg = `User: ${name || 'Anon'} | Email: ${email || 'Anon'} | Comment: ${comment}`;
+      await Telemetry.logFeedback(rating, feedbackMsg);
       setIsSuccess(true);
       toast.success("Sentiment Logged", { icon: '🧬' });
       setTimeout(onClose, 2000);

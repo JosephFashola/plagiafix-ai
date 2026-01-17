@@ -13,6 +13,8 @@ export interface DocumentVersion {
   text: string;
   label: string;
   score: number;
+  aiProbability: number;
+  bibliography?: SourceMatch[];
 }
 
 export interface ErrorContext {
@@ -71,21 +73,49 @@ export interface AnalysisResult {
 
 export type HumanizeMode = 'Standard' | 'Ghost' | 'Academic' | 'Creative' | 'IvyStealth';
 
-export type CitationStyle = 'APA' | 'MLA' | 'Chicago' | 'Harvard' | 'IEEE' | 'Vancouver' | 'Nature' | 'Bluebook';
+export type CitationStyle = 
+  | 'APA 7th Edition' 
+  | 'MLA 9th Edition' 
+  | 'Chicago 17th (Author-Date)' 
+  | 'Chicago 17th (Notes & Bibliography)'
+  | 'Harvard (Standard)' 
+  | 'IEEE (Technical/Engineering)' 
+  | 'Vancouver (Biomedical)' 
+  | 'Nature (Journal Style)' 
+  | 'Science (Journal Style)'
+  | 'Bluebook (Legal/US)' 
+  | 'OSCOLA (Legal/UK)'
+  | 'AMA (Medical/11th Ed)'
+  | 'ASA (Sociological)'
+  | 'AAA (Anthropological)'
+  | 'APSA (Political Science)'
+  | 'Turabian (9th Ed)'
+  | 'MHRA (Humanities)'
+  | 'ACS (Chemical Society)'
+  | 'AGU (Geophysical Union)';
 
 export type TargetLanguage = 
-  | 'English (US)' 
-  | 'English (UK)' 
-  | 'English (CA)' 
-  | 'English (AU)' 
-  | 'Spanish (Modern)' 
-  | 'French (Scholarly)' 
-  | 'German (Formal)' 
-  | 'Italian (Standard)' 
-  | 'Portuguese (Brazil)' 
-  | 'Dutch (Academic)' 
-  | 'Chinese (Simplified)' 
-  | 'Japanese (Formal)';
+  | 'English (United States - Academic)' 
+  | 'English (United Kingdom - Oxford)' 
+  | 'English (Canada - Standard)' 
+  | 'English (Australia - Professional)' 
+  | 'English (International - Scholarly)'
+  | 'Spanish (Spain - Castilian Professional)' 
+  | 'Spanish (Latin America - Formal)'
+  | 'French (France - Standard Academic)' 
+  | 'French (Canada - Québécois Scholarly)' 
+  | 'German (Germany - Hochdeutsch Formal)' 
+  | 'German (Switzerland - Academic)'
+  | 'Italian (Italy - Standard Professional)' 
+  | 'Portuguese (Brazil - Formal Academic)' 
+  | 'Portuguese (Portugal - Scholarly)'
+  | 'Dutch (Netherlands - Academic)' 
+  | 'Chinese (Simplified - Academic Mandarin)' 
+  | 'Chinese (Traditional - Scholarly Standard)'
+  | 'Japanese (Japan - Keigo/Formal)'
+  | 'Korean (South Korea - Formal/Academic)'
+  | 'Russian (Russia - Academic Standard)'
+  | 'Arabic (Modern Standard - Professional)';
 
 export type IdentityLevel = 'UNDERGRADUATE' | 'MSC' | 'POSTGRADUATE' | 'GHOST' | 'EXECUTIVE';
 
@@ -138,12 +168,17 @@ export interface DocumentState {
   fileName?: string;
 }
 
-export type LogType = 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'DONATION' | 'FEEDBACK';
+export type LogType = 'SCAN' | 'FIX' | 'ERROR' | 'VISIT' | 'DONATION' | 'FEEDBACK' | 'TRANSACTION' | 'FEATURE';
 
 export interface LogEntry {
   timestamp: number;
   type: LogType;
   details: string;
+}
+
+export interface FeatureUsage {
+  name: string;
+  value: number;
 }
 
 export interface AppStats {
@@ -155,6 +190,7 @@ export interface AppStats {
   activeUsers24h: number;
   peakConcurrent: number;
   lastActive: string;
+  featureMatrix: Record<string, number>;
 }
 
 export interface ForensicInsights {
@@ -162,6 +198,8 @@ export interface ForensicInsights {
   avgDocLength: number;
   commonIssues: { issue: string; count: number }[];
   aiBypassRate: number;
+  featureUsage: FeatureUsage[];
+  modeDistribution: FeatureUsage[];
 }
 
 export interface SystemHealth {

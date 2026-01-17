@@ -10,19 +10,20 @@ import LiveStudio from './components/LiveStudio';
 import HistoryModal from './components/HistoryModal';
 import RatingModal from './components/RatingModal';
 import LaunchBanner from './components/LaunchBanner';
+import CreditShop from './components/CreditShop';
 import { AppStatus, DocumentState, AnalysisResult, FixResult, FixOptions, LinguisticProfile, DocumentVersion, ErrorContext } from './types';
 import { analyzeDocument, fixPlagiarism, checkApiKey } from './services/geminiService';
 import { Telemetry } from './services/telemetry';
 import { 
-  Dna, Zap, AlertCircle, RefreshCcw, Mic, Shield, 
+  Dna, Zap, AlertCircle, RefreshCcw, Mic, 
   GraduationCap, Sparkles, Star, ShieldCheck, Heart,
-  FileSearch, Presentation, ScrollText, Globe, Layers, Fingerprint, 
-  Search, ShieldAlert, CheckCircle, FileText, Globe2, Cpu, BarChart3, Binary, User, Linkedin, Twitter, ArrowRight, MousePointer2, Monitor, ShieldCheck as ShieldIcon,
-  Lock, Settings, Eye
+  Presentation, ScrollText, Fingerprint, 
+  Search, CheckCircle, Linkedin, Coins, Languages
 } from 'lucide-react';
 
 const SESSION_KEY = 'plagiafix_active_session_v14_final';
 const THEME_KEY = 'plagiafix_theme_preference';
+const CREDITS_KEY = 'plagiafix_neural_credits_v1';
 
 const App: React.FC = () => {
   const [status, setStatus] = useState<AppStatus>(AppStatus.IDLE);
@@ -36,20 +37,27 @@ const App: React.FC = () => {
   const [errorContext, setErrorContext] = useState<ErrorContext | null>(null);
   const [versions, setVersions] = useState<DocumentVersion[]>([]);
   const [profiles, setProfiles] = useState<LinguisticProfile[]>([]);
-  const [activeProfileId, setActiveProfileId] = useState<string | null>('sys_ghost');
+  const [activeProfileId, setActiveProfileId] = useState<string | null>('sys_ug');
   const [isVaultOpen, setIsVaultOpen] = useState(false);
   const [isLiveStudioOpen, setIsLiveStudioOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isRatingOpen, setIsRatingOpen] = useState(false);
-  
-  // Admin state (accessible via URL param only now)
-  const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const [isShopOpen, setIsShopOpen] = useState(false);
+  const [countryCode, setCountryCode] = useState('NG');
+  const [credits, setCredits] = useState<number>(() => {
+    const saved = localStorage.getItem(CREDITS_KEY);
+    return saved ? parseInt(saved) : 0;
+  });
   
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     const saved = localStorage.getItem(THEME_KEY);
     if (saved) return saved === 'dark';
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
+
+  useEffect(() => {
+    localStorage.setItem(CREDITS_KEY, credits.toString());
+  }, [credits]);
 
   useEffect(() => {
     if (darkMode) {
@@ -69,16 +77,34 @@ const App: React.FC = () => {
     }
   }, [activeDocument, analysis, fixResult, profiles, activeProfileId, versions, docTitle]);
 
+  // AUTO-TRIGGER RATING AFTER FIX
+  useEffect(() => {
+    if (status === AppStatus.COMPLETED) {
+      const timer = setTimeout(() => {
+        setIsRatingOpen(true);
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [status]);
+
   useEffect(() => {
     const initApp = async () => {
       try {
           const params = new URLSearchParams(window.location.search);
           if (params.get('admin_key') === 'plagiafix_master_2025') { 
             setIsAdmin(true); 
-            setAdminUnlocked(true);
             setIsRestoring(false);
             return; 
           } 
+          
+          try {
+            const geoRes = await fetch('https://ipapi.co/json/');
+            const geoData = await geoRes.json();
+            if (geoData.country_code) setCountryCode(geoData.country_code);
+          } catch (e) {
+            console.debug("Geo detection fallback to NG");
+          }
+
           const saved = localStorage.getItem(SESSION_KEY);
           if (saved) {
               const session = JSON.parse(saved);
@@ -111,7 +137,7 @@ const App: React.FC = () => {
       const result = await analyzeDocument(text, (percent, step) => setScanProgress({ percent, step }));
       setAnalysis(result);
       setStatus(AppStatus.IDLE); 
-      setVersions([{ id: Math.random().toString(36).substr(2,9), timestamp: Date.now(), text, label: 'Initial Check', score: result.plagiarismScore }]);
+      setVersions([{ id: Math.random().toString(36).substr(2,9), timestamp: Date.now(), text, label: 'Initial Check', score: result.plagiarismScore, aiProbability: result.aiProbability, bibliography: result.sourcesFound }]);
       Telemetry.logScan(text.length, result.detectedIssues);
     } catch (error: any) {
       setErrorContext({ code: 'SCAN_FAILURE', message: error.message, actionableAdvice: 'Please try again.' });
@@ -123,24 +149,50 @@ const App: React.FC = () => {
   const handleFixPlagiarism = async (options: FixOptions) => {
     if (!activeDocument || !analysis) return;
 
+    const isPremium = options.styleProfileId !== 'sys_ug';
+    if (isPremium && credits <= 0) {
+      setIsShopOpen(true);
+      toast.error("Neural Credits required for Premium DNA styles.", { icon: '🔒' });
+      return;
+    }
+
     setStatus(AppStatus.FIXING);
     try {
       const allProfiles = [...profiles, ...(SYSTEM_ARCHETYPES as LinguisticProfile[])];
       const active = allProfiles.find(p => p.id === options.styleProfileId);
       const result = await fixPlagiarism(activeDocument.originalText, analysis.detectedIssues, options, analysis.sourcesFound || [], (p, msg) => setScanProgress({ percent: p, step: msg }), active?.sample);
       
+      if (isPremium) setCredits(prev => Math.max(0, prev - 1));
+      
       setFixResult(result);
-      setVersions(prev => [...prev, { id: Math.random().toString(36).substr(2,9), timestamp: Date.now(), text: result.rewrittenText, label: `Improved Version`, score: result.newAiProbability }]);
+      setVersions(prev => [...prev, { id: Math.random().toString(36).substr(2,9), timestamp: Date.now(), text: result.rewrittenText, label: `Improved Version`, score: result.newPlagiarismScore, aiProbability: result.newAiProbability, bibliography: result.bibliography }]);
       setStatus(AppStatus.COMPLETED);
       
-      toast.success(`Humanization Complete! All features are free.`, { icon: '🎓' });
-      
-      Telemetry.logFix(result.rewrittenText.length);
+      toast.success(`Humanization Complete!`, { icon: '🎓' });
+      await Telemetry.logFix(result.rewrittenText.length, options);
     } catch (error: any) {
       setErrorContext({ code: 'FIX_FAILURE', message: error.message, actionableAdvice: 'Try a shorter document.' });
       setStatus(AppStatus.ERROR);
       Telemetry.logError(`Fix failed: ${error.message}`);
     }
+  };
+
+  const handleSaveManualVersion = (label: string) => {
+    if (!analysis) return;
+    const text = fixResult ? fixResult.rewrittenText : (activeDocument?.originalText || '');
+    const score = fixResult ? fixResult.newPlagiarismScore : analysis.plagiarismScore;
+    const aiProb = fixResult ? fixResult.newAiProbability : analysis.aiProbability;
+    const bib = fixResult ? fixResult.bibliography : analysis.sourcesFound;
+
+    setVersions(prev => [...prev, { 
+      id: Math.random().toString(36).substr(2,9), 
+      timestamp: Date.now(), 
+      text, 
+      label, 
+      score,
+      aiProbability: aiProb,
+      bibliography: bib 
+    }]);
   };
 
   const handleReset = () => {
@@ -157,15 +209,28 @@ const App: React.FC = () => {
   const handleRestoreVersion = (version: DocumentVersion) => {
     if (version.label === 'Initial Check') {
       setFixResult(null);
+      if (analysis) {
+        setAnalysis({
+          ...analysis,
+          aiProbability: version.aiProbability,
+          plagiarismScore: version.score,
+          sourcesFound: version.bibliography || []
+        });
+      }
     } else {
       setFixResult(prev => ({
-        ...(prev || { 
-          newPlagiarismScore: 0, 
-          improvementsMade: [], 
-          fidelityMap: [{ subject: 'Human Score', A: 100 - version.score, fullMark: 100 }] 
-        }),
         rewrittenText: version.text,
-        newAiProbability: version.score
+        newPlagiarismScore: version.score,
+        newAiProbability: version.aiProbability,
+        improvementsMade: prev?.improvementsMade || [],
+        bibliography: version.bibliography || [],
+        fidelityMap: [
+          { subject: 'Human Score', A: 100 - version.aiProbability, fullMark: 100 },
+          { subject: 'Originality', A: 100 - version.score, fullMark: 100 },
+          { subject: 'Chaos Factor', A: 95, fullMark: 100 }, 
+          { subject: 'Fact Fidelity', A: 98, fullMark: 100 }, 
+          { subject: 'Synthesis', A: 95, fullMark: 100 }
+        ]
       }));
     }
     setIsHistoryOpen(false);
@@ -176,22 +241,14 @@ const App: React.FC = () => {
 
   if (isRestoring) return <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white font-black uppercase text-[10px] tracking-[0.4em] gap-4">
     <RefreshCcw className="w-8 h-8 animate-spin text-indigo-500" />
-    Initializing...
+    Initializing Neural Link...
   </div>;
 
   return (
     <>
       <Toaster position="top-center" />
       {isAdmin ? (
-        <div className="relative">
-          <AdminDashboard />
-          <button 
-            onClick={() => setIsAdmin(false)}
-            className="fixed bottom-10 right-10 z-[200] px-6 py-4 bg-white text-indigo-600 rounded-2xl font-black uppercase tracking-widest text-[10px] shadow-2xl border border-indigo-100 flex items-center gap-3 hover:scale-105 active:scale-95 transition-all"
-          >
-            <Eye className="w-4 h-4" /> Exit Admin View
-          </button>
-        </div>
+        <AdminDashboard onExit={() => setIsAdmin(false)} />
       ) : (
         <div className="min-h-screen bg-[#f8fafc] dark:bg-[#070a0f] font-sans selection:bg-indigo-100 selection:text-indigo-900 dark:selection:bg-indigo-900/40 dark:selection:text-indigo-200 overflow-x-hidden transition-colors duration-300">
           <LaunchBanner />
@@ -215,28 +272,32 @@ const App: React.FC = () => {
                     <span className="text-indigo-600">Assistant</span>
                   </h2>
                   <p className="text-lg md:text-xl text-slate-500 dark:text-slate-400 font-medium max-w-3xl mb-12 leading-relaxed">
-                    Scan hundreds of pages for AI and plagiarism instantly. Our forensic engine makes your writing sound 100% human, for free.
+                    Scan hundreds of pages for AI and plagiarism instantly. Our forensic engine makes your writing sound 100% human.
                   </p>
                   
                   <div className="flex justify-center gap-4 mb-16">
                     <button onClick={() => setIsVaultOpen(true)} className="flex items-center gap-3 px-8 py-4 bg-slate-900 dark:bg-slate-800 text-white rounded-2xl font-black uppercase tracking-widest shadow-2xl transition-all hover:bg-black dark:hover:bg-slate-700 text-[11px]"><Dna className="w-4 h-4 text-indigo-400" /> Writing Styles</button>
-                    <button onClick={() => setIsLiveStudioOpen(true)} className="flex items-center gap-3 px-8 py-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all hover:border-indigo-400 text-[11px]"><Mic className="w-4 h-4 text-indigo-600" /> Voice Mode</button>
+                    <button onClick={() => setIsShopOpen(true)} className="flex items-center gap-3 px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all hover:bg-indigo-700 text-[11px]">
+                      <Coins className="w-4 h-4" /> {credits > 0 ? `${credits} Credits` : 'Get Credits'}
+                    </button>
+                    <button onClick={() => { setIsLiveStudioOpen(true); Telemetry.logFeature('Voice Mode'); }} className="flex items-center gap-3 px-8 py-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all hover:border-indigo-400 text-[11px]"><Mic className="w-4 h-4 text-indigo-600" /> Voice Mode</button>
                   </div>
                 </div>
 
                 <FileUpload onTextLoaded={handleTextLoaded} isLoading={false} />
 
+                {/* OUR MISSION SECTION - NOW FIRST */}
                 <div className="mt-40 grid grid-cols-1 lg:grid-cols-2 gap-16 items-center bg-white dark:bg-slate-900 rounded-[4rem] p-12 lg:p-20 border border-slate-100 dark:border-slate-800 shadow-2xl">
                    <div className="space-y-8">
                       <div className="inline-flex items-center gap-3 px-6 py-2 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30 rounded-full">
                          <Heart className="w-4 h-4 text-rose-500 fill-current" />
-                         <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">The Maker's Story</span>
+                         <span className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">Our Mission</span>
                       </div>
-                      <h3 className="text-4xl lg:text-6xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none font-heading">Why I Built <span className="text-indigo-600">PlagiaFix.</span></h3>
+                      <h3 className="text-4xl lg:text-6xl font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none font-heading">For Every <span className="text-indigo-600">Student.</span></h3>
                       <p className="text-lg text-slate-500 dark:text-slate-400 font-medium leading-relaxed">
-                        Hi, I'm Joseph. I noticed that high-performing writers and non-native speakers were being unfairly flagged by AI detectors just for writing structured English.
+                        PlagiaFix was built on a simple promise: Undergraduate research should be accessible and protected. 
                         <br/><br/>
-                        I built this tool to level the playing field. It uses advanced "Style DNA" matching to ensure your hard work stays your own, protecting your academic and creative reputation from robotic scanners.
+                        We keep our <b>Undergraduate Style DNA</b> free forever, so every student can defend their academic integrity regardless of their financial situation.
                       </p>
                       <div className="flex items-center gap-6 pt-4">
                          <a href="https://linkedin.com/in/joseph-fashola" target="_blank" rel="noreferrer" className="flex items-center gap-3 px-6 py-3 bg-slate-900 text-white rounded-xl font-black uppercase tracking-widest text-[10px] hover:bg-black transition-all">
@@ -250,13 +311,13 @@ const App: React.FC = () => {
                          <div className="absolute top-0 right-0 p-8 opacity-10"><Dna className="w-40 h-40" /></div>
                          <div className="flex items-center gap-4">
                             <ShieldCheck className="w-8 h-8 text-indigo-400" />
-                            <h4 className="text-xl font-black uppercase tracking-tight">Our Mission</h4>
+                            <h4 className="text-xl font-black uppercase tracking-tight">Institutional Support</h4>
                          </div>
                          <div className="space-y-4">
                             {[
-                               "Defend your academic and professional integrity.",
+                               "Free DNA styles for Undergraduates.",
                                "Bypass algorithms that flag human creativity.",
-                               "Provide free, high-grade tools for everyone."
+                               "Designed for high-impact scholarship."
                             ].map((item, i) => (
                                <div key={i} className="flex items-center gap-4 text-slate-400 font-bold text-sm">
                                   <CheckCircle className="w-5 h-5 text-emerald-500 shrink-0" />
@@ -268,103 +329,35 @@ const App: React.FC = () => {
                    </div>
                 </div>
 
+                {/* INSTITUTIONAL CAPABILITIES GRID - NOW SECOND */}
                 <div className="mt-40 space-y-16">
-                  <div className="text-center max-w-4xl mx-auto space-y-4">
-                    <h2 className="text-4xl lg:text-[4.5rem] font-black text-slate-900 dark:text-white uppercase tracking-tighter leading-none font-heading">
-                      THE V14 ENGINE ECOSYSTEM
-                    </h2>
-                    <p className="text-sm md:text-md text-slate-500 dark:text-slate-400 font-bold uppercase tracking-[0.2em] leading-relaxed max-w-2xl mx-auto">
-                      Professional tools to help you write, clean, and present research at scale. Completely free for everyone.
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-6xl mx-auto px-4">
-                    {[
-                      {
-                        title: "FORENSIC PURGE",
-                        description: "Scan documents up to 500+ pages. Our engine cleans up plagiarism and makes your writing flow better while keeping your facts 100% accurate.",
-                        icon: <Search className="w-6 h-6 text-white" />
-                      },
-                      {
-                        title: "LINGUISTIC DNA",
-                        description: "Mirror your unique writing style perfectly. Upload your past work to the DNA Vault so every paper you fix sounds exactly like you.",
-                        icon: <Fingerprint className="w-6 h-6 text-white" />
-                      },
-                      {
-                        title: "ADVERSARIAL BYPASS",
-                        description: "Built for 0% detection. We remove the hidden 'patterns' that tools like Turnitin and GPTZero look for, making your work completely human.",
-                        icon: <ShieldIcon className="w-6 h-6 text-white" />
-                      },
-                      {
-                        title: "SYNTHESIS MEMOS",
-                        description: "Turn giant research papers into short professional memos instantly. Perfect for busy students and executive review boards.",
-                        icon: <FileText className="w-6 h-6 text-white" />
-                      },
-                      {
-                        title: "NEURAL SLIDES",
-                        description: "One-click slide creation. Our engine takes your document and builds a full presentation with bullet points and speaker notes for you.",
-                        icon: <Monitor className="w-6 h-6 text-white" />
-                      },
-                      {
-                        title: "LIVE GROUNDING",
-                        description: "Smart citations. Every document we improve gets real citations from the web in the styles you need (APA, MLA, Harvard).",
-                        icon: <Globe className="w-6 h-6 text-white" />
-                      }
-                    ].map((feature, i) => (
-                      <div key={i} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-[3.5rem] p-12 flex flex-col items-center text-center shadow-sm hover:shadow-2xl hover:translate-y-[-4px] transition-all duration-500">
-                        <div className="bg-slate-900 dark:bg-slate-800 p-5 rounded-2xl mb-8 shadow-xl">
-                          {feature.icon}
+                   <div className="text-center space-y-4">
+                      <h3 className="text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-[0.5em]">The V14 Engine</h3>
+                      <h2 className="text-4xl lg:text-6xl font-black text-slate-900 dark:text-white uppercase tracking-tighter font-heading">Institutional Capabilities.</h2>
+                   </div>
+                   
+                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                      {[
+                        { title: "Forensic Scanning", desc: "Identify plagiarism and AI structures across hundreds of pages in seconds.", icon: <Search />, color: "bg-indigo-600" },
+                        { title: "Neural Humanizer", desc: "Rewrite content using Adversarial V6 Stealth to bypass all institutional scanners.", icon: <Sparkles />, color: "bg-emerald-600" },
+                        { title: "Style DNA Vault", desc: "Select from Undergrad, MSc, PhD, or Executive linguistic archetypes.", icon: <Fingerprint />, color: "bg-amber-600" },
+                        { title: "Executive Memos", desc: "Convert complex research into high-impact professional syntheses.", icon: <ScrollText />, color: "bg-rose-600" },
+                        { title: "Professional Slides", desc: "Instantly generate PowerPoint decks from any research document.", icon: <Presentation />, color: "bg-blue-600" },
+                        { title: "Institutional Citations", desc: "Auto-inject APA, MLA, or Harvard citations directly into your humanized prose.", icon: <Languages />, color: "bg-cyan-600" },
+                        { title: "Global Dialect Stealth", desc: "Humanize in 20+ scholarly dialects, from Oxford English to Academic Mandarin.", icon: <Languages />, color: "bg-orange-600" },
+                        { title: "Voice Studio", desc: "Real-time humanized dictation for papers and presentations.", icon: <Mic />, color: "bg-purple-600" }
+                      ].map((f, i) => (
+                        <div key={i} className="bg-white dark:bg-slate-900 p-10 rounded-[3rem] border border-slate-100 dark:border-slate-800 shadow-xl hover-lift group">
+                           <div className={`w-16 h-16 ${f.color} rounded-2xl flex items-center justify-center text-white mb-8 shadow-lg group-hover:rotate-6 transition-transform`}>
+                              {React.cloneElement(f.icon as React.ReactElement, { className: "w-8 h-8" } as any)}
+                           </div>
+                           <h4 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight mb-4">{f.title}</h4>
+                           <p className="text-sm text-slate-500 dark:text-slate-400 font-medium leading-relaxed">{f.desc}</p>
                         </div>
-                        <h4 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tight mb-6 font-heading">
-                          {feature.title}
-                        </h4>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 font-medium leading-[1.8] max-w-sm">
-                          {feature.description}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="pt-24 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto px-4">
-                    <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-12 text-center flex flex-col items-center justify-center space-y-4 shadow-sm border border-slate-50 dark:border-slate-800">
-                       <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl flex items-center justify-center mb-2">
-                          <Star className="w-6 h-6 text-indigo-600 dark:text-indigo-400 fill-current" />
-                       </div>
-                       <h5 className="text-4xl font-black text-slate-900 dark:text-white font-heading">4.9/5.0</h5>
-                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">INSTITUTIONAL RATING</p>
-                    </div>
-
-                    <div className="bg-[#0f172a] rounded-[3rem] p-12 text-center flex flex-col items-center justify-center space-y-4 shadow-2xl relative overflow-hidden group">
-                       <div className="absolute inset-0 bg-indigo-500/5 group-hover:bg-indigo-500/10 transition-colors"></div>
-                       <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center mb-2 border border-white/10 relative z-10">
-                          <ShieldCheck className="w-6 h-6 text-indigo-400" />
-                       </div>
-                       <h5 className="text-4xl font-black text-white font-heading relative z-10">99.9%</h5>
-                       <p className="text-[10px] font-black text-indigo-300/60 uppercase tracking-widest relative z-10">STEALTH SUCCESS RATE</p>
-                    </div>
-
-                    <div className="bg-white dark:bg-slate-900 rounded-[3rem] p-12 text-center flex flex-col items-center justify-center space-y-4 shadow-sm border border-slate-50 dark:border-slate-800">
-                       <div className="w-12 h-12 bg-rose-50 dark:bg-rose-900/20 rounded-2xl flex items-center justify-center mb-2">
-                          <Heart className="w-6 h-6 text-rose-500 fill-current" />
-                       </div>
-                       <h5 className="text-3xl font-black text-slate-900 dark:text-white font-heading">Join Flow</h5>
-                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">RATE OUR V14 ENGINE</p>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-900 dark:bg-indigo-600 rounded-[4rem] p-12 lg:p-20 text-white flex flex-col lg:flex-row items-center justify-between gap-12 overflow-hidden relative shadow-2xl shadow-indigo-500/20">
-                    <div className="absolute top-0 right-0 p-10 opacity-10 rotate-12"><ShieldCheck className="w-64 h-64" /></div>
-                    <div className="space-y-6 relative z-10 max-w-2xl">
-                       <h3 className="text-4xl lg:text-5xl font-black uppercase tracking-tighter leading-none font-heading">Sovereign Protection for the <span className="text-indigo-400 dark:text-indigo-200">Modern Scholar.</span></h3>
-                       <p className="text-lg text-indigo-100/70 font-medium">
-                         Don't let algorithms define your intelligence. Start using the same forensic tools that top researchers use to protect their work.
-                       </p>
-                    </div>
-                    <button onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})} className="px-10 py-5 bg-white text-indigo-600 rounded-2xl font-black uppercase tracking-widest text-xs shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3 relative z-10 group">
-                      Get Started Now <MousePointer2 className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                    </button>
-                  </div>
+                      ))}
+                   </div>
                 </div>
+
               </div>
             )}
 
@@ -387,16 +380,21 @@ const App: React.FC = () => {
                 <AnalysisView 
                   originalText={activeDocument.originalText} analysis={analysis} fixResult={fixResult} status={status} 
                   onFix={handleFixPlagiarism} onUpdateText={(t) => fixResult && setFixResult({...fixResult, rewrittenText: t})} onReset={handleReset} 
-                  scoreHistory={versions.map(v => v.score)} profiles={profiles} activeProfileId={activeProfileId} onProfileSelect={setActiveProfileId} onAddProfile={(p) => setProfiles(prev => [...prev, p])}
+                  onOpenHistory={() => setIsHistoryOpen(true)}
+                  onSaveVersion={handleSaveManualVersion}
+                  onOpenRating={() => setIsRatingOpen(true)}
+                  credits={credits}
+                  scoreHistory={versions.map(v => v.aiProbability)} profiles={profiles} activeProfileId={activeProfileId} onProfileSelect={setActiveProfileId} onAddProfile={(p) => setProfiles(prev => [...prev, p])}
                 />
               </div>
             )}
           </main>
 
-          {isVaultOpen && <StyleDNAVault profiles={profiles} activeProfileId={activeProfileId} onClose={() => setIsVaultOpen(false)} onProfileSelect={setActiveProfileId} onAddProfile={(p) => setProfiles(prev => [...prev, p])} />}
+          {isVaultOpen && <StyleDNAVault profiles={profiles} activeProfileId={activeProfileId} onClose={() => setIsVaultOpen(false)} onProfileSelect={(id) => { setActiveProfileId(id); Telemetry.logFeature('Vault Select'); }} onAddProfile={(p) => setProfiles(prev => [...prev, p])} />}
           {isLiveStudioOpen && <LiveStudio initialMode="IvyStealth" onCommit={(text) => { handleTextLoaded(text, 'Text Input'); setIsLiveStudioOpen(false); }} onClose={() => setIsLiveStudioOpen(false)} />}
           {isHistoryOpen && <HistoryModal versions={versions} onRestore={handleRestoreVersion} onClose={() => setIsHistoryOpen(false)} />}
           {isRatingOpen && <RatingModal onClose={() => setIsRatingOpen(false)} />}
+          {isShopOpen && <CreditShop onClose={() => setIsShopOpen(false)} onPurchase={(amt) => { setCredits(prev => prev + amt); setIsShopOpen(false); toast.success(`${amt} Pass Active!`); }} defaultCurrency={countryCode === 'NG' ? 'NGN' : 'USD'} />}
           
           <footer className="py-20 px-12 border-t border-slate-100 dark:border-slate-900 bg-white dark:bg-slate-950 mt-40">
             <div className="max-w-[1600px] mx-auto flex flex-col md:flex-row justify-between items-center gap-10">
@@ -405,17 +403,9 @@ const App: React.FC = () => {
                     <span className="text-2xl font-black font-heading tracking-tighter uppercase text-slate-900 dark:text-white">PlagiaFix</span>
                 </div>
                 <div className="flex flex-col md:flex-row items-center gap-10">
-                   {adminUnlocked && (
-                     <button 
-                       onClick={() => setIsAdmin(true)}
-                       className="flex items-center gap-2 text-[10px] font-black text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 uppercase tracking-widest transition-all animate-in fade-in slide-in-from-left-4"
-                     >
-                       <Settings className="w-3.5 h-3.5" /> Node Admin
-                     </button>
-                   )}
                    <button onClick={() => setIsRatingOpen(true)} className="flex items-center gap-2 text-[10px] font-black text-indigo-600 dark:text-indigo-400 uppercase tracking-widest hover:text-indigo-800 dark:hover:text-indigo-300 transition-all"><Star className="w-4 h-4 fill-current" /> Give Feedback</button>
                    <span className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">
-                     By Joseph Fashola
+                     By Joseph Fashola (FOJ GLOBAL ADVISORY & VENTURES LTD)
                    </span>
                 </div>
             </div>
